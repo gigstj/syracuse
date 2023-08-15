@@ -1,0 +1,1335 @@
+---
+output:
+    word_document: default
+---
+
+Due Date: 5/26/2021
+
+## Introduction
+
+Computer vision is a field of computer science that involves training computers to
+understand digital media such as images and videos. Dating back several decades this
+field has evolved over time. Today there are a number of different methodologies
+designed for this task. The following report depicts one such example, using the
+well-known MINST dataset to recognize handwritten digits.
+
+## Data
+
+The MINST dataset consists of a large collection of 28 x 28 pixel images, in which
+each image reflects a single handwritten digit between 0-9. Each individual pixel is
+represented by a positive integer within the range of 0-255, corresponding with the
+lightness-darkness of that pixel. As such, there are a total of 784 pixels for 
+each image. The goal is to code a machine learning algorithm that is able to
+effectively determine the digit for a given image based on the image's pixels.
+
+## Methodology
+
+The data is initially explored and some data preprocessing is performed. Noisy
+images, i.e. images with many outlier pixels, are removed prior to model training.
+several classification models are coded and trialed. These models include C50
+decision tree, naive bayes, k nearest neighbors, support vector machine, and
+random forest.
+
+
+```{r Load Packages, include = FALSE}
+
+# here are the packages needed and what they are used for
+# make sure that these packages are installed prior to running
+
+require(readr)          # reading csv files
+require(resample)       # cat0 function
+require(ggplot2)        # ggplot visualizations
+require(reshape2)       # casting and melting
+require(imager)         # plotting the images
+require(C50)            # decision tree model
+require(caret)          # createDataPartition function
+require(dplyr)          # mutate_all, pipe operator, joins
+require(arules)         # discretize function
+require(e1071)          # naive bayes and svm models
+require(class)          # knn model
+require(randomForest)   # random forest model
+require(sqldf)          # sql sauce
+require(knitr)          # printing tables
+
+```
+
+```{r Load Data, include = FALSE}
+
+# load the original datasets
+# make sure the files are saved in the current working directory
+# datasets can be downloaded from https://www.kaggle.com/c/digit-recognizer
+
+digitTrain   <- read_csv("train.csv")
+digitTest    <- read_csv("Test.csv")
+
+# use a sample of the data for the purpose of this assignment
+# it takes too long to render the doc with too much data
+# 10 % of the training data will used
+
+set.seed(50) # set the seed
+digitSample <- createDataPartition(digitTrain$label, p = 0.10, list = FALSE) # sample 10% of the data
+digitTrain <- digitTrain[digitSample, ] # slice based on the sample
+rm(digitSample) # remove the sample variable
+
+```
+
+## Exploratory Data Analysis
+
+What are the dimensions of the data?
+
+```{r Data Dimensions, echo = FALSE}
+
+cat0(
+  
+    'Original Training and Testing Data \n \n',
+    
+    'Training Data Dimensions \n',
+    'Rows = ', dim(digitTrain) [1], ' Cols = ', dim(digitTrain) [2], '\n',
+    'Size = ', format(object.size(digitTrain), units = "Mb", digits = 0),
+    
+    '\n \n',
+    
+    'Testing Data Dimensions \n',
+    'Rows = ', dim(digitTest) [1], ' Cols = ', dim(digitTest) [2], '\n',
+    'Size = ', format(object.size(digitTest), units = "Mb", digits = 0)
+    
+    )
+
+```
+
+How many of each digit are there in the training data?
+
+```{r Data Labels, echo = FALSE}
+
+# print out a frequency distribution table for the counts
+# of handwritten digits in the training data with grand total
+
+print.data.frame(
+  
+  as.data.frame(cbind(
+    
+    'Digit' = c(names(table(digitTrain$label)), 'Total'),
+    'Count' = c(as.numeric(table(digitTrain$label)), nrow(digitTrain)))),
+  
+  row.names = FALSE)
+
+# show a visualization of the frequency distribution in a
+# gg histogram plot with some customizations
+
+ggplot(digitTrain, aes(x = label))           +
+  geom_histogram(bins = 10, binwidth = .5)   +   # 10 bins for each digit 0-9, reduced bin width for looks
+  scale_x_continuous(breaks=0:9)             +   # this line makes it so all the x axis labels are displayed
+  ylim(c(0, 500))                           +   # extend the y axis range to provide a little bit of spacing
+  
+  # adds the data point labels above each of the bars
+  stat_bin(bins = 10, binwidth = 1, geom = "text", aes(label = ..count..), vjust = -1.5) +
+  
+  # plot title and x axis and y axis titles
+  # padded with new lines for extra spacing
+  ggtitle('\n Histogram of Handwritten Digit Labels in Training Data \n') +
+  xlab('\n Handwritten Digit Label \n') +
+  ylab('\n Count \n') +
+  
+  # some more customizations to the plot
+  theme(
+        
+        # change the font size of x axis and y axis labels to 11
+        axis.text.x = element_text(size = 11), 
+        axis.text.y = element_text(size = 11),
+        
+        # change the x axis and y axis titles to size 12, black, and boldface
+        axis.title.x = element_text(size = 12, color = "black", face = "bold"),
+        axis.title.y = element_text(size = 12, color = "black", face = "bold"),
+        
+        # get rid of the default background
+        panel.background = element_rect(fill = NA)
+        
+        )
+
+```
+
+Observations
+- there is a fairly uniform distribution of each digit
+- the digit 1 has the most examples and the digit 5 the least
+- no action needed, but keep in mind for subsequent analysis
+
+What do some of the handwritten digits look like? 
+
+```{r Plot Handwritten Digits, echo = FALSE}
+
+# create function that plots the handwritten digit
+# the dataframe arg is the 784 column image dataframe
+
+createImage <- function(dataframe) {
+  
+  # store the provided dataframe as a local variable
+  digitTemp <- dataframe
+  
+  # for loop pulls apart the dataframe and puts it
+  # back together in a 28 x 28 dataframe where
+  # the pixel values are aggregated by the mean 
+  
+  # each iteration represents one of the 28 vertical slices
+  for (verticalslice in seq(0, 27, 1)) {
+    
+    # pulls out the corresponding 28 pixels for the current vertical slice
+    # i.e. pixel 0, 28, 56,... 756 that make up the first vertical slice
+    # pixel 1, 29, 57, ... 757 make up the second vertical slice, and so on
+    digitPixels <- seq(verticalslice, 783, 28)
+    
+    # create a new data frame with the pixels from above sliced out
+    digitSliced <- digitTemp[, which(gsub('pixel', '', colnames(digitTemp)) %in% digitPixels)]
+    
+    # flatten the sliced dataframe into a vector using the pixel means
+    FlatPixels <- as.numeric(colMeans(digitSliced))
+    
+    # if its the first iteration, create a new variable, otherwise append
+    # the new variable, imageMatrix, is the 28 x 28 image dataframe
+    ifelse(verticalslice == 0,
+           imageMatrix <- FlatPixels,
+           imageMatrix <- as.data.frame(cbind(imageMatrix, FlatPixels)))
+    
+  }
+  
+  # now the 28 x 28 image dataframe will be restructured again and converted
+  # into a cimg object per the imager package, so that it can be plotted
+  
+  colnames(imageMatrix)   <- paste0('X', seq(1, 28, 1))                            # temporarily alias the colnames as 'X1', 'X2',... 'X28'
+  imageMatrix$y           <- row.names(imageMatrix)                                # column 'y' must be added to meet the required format
+  imageMatrix             <- melt(imageMatrix, id = c("y"), variable.name = 'x')   # dataframe must be in long and tall format, melt it
+  imageMatrix$x           <- as.numeric(gsub('X', '', imageMatrix$x))              # remove the 'X' and convert the x values to numeric
+  imageMatrix$y           <- as.numeric(imageMatrix$y)                             # convert the y values to numeric
+  digitImage              <- as.cimg(imageMatrix, dim = c(28, 28))                 # convert the dataframe to a cimg object
+  
+  # finally, the image is plotted and returned as the function output
+  return(digitImage)
+  
+}
+
+# display a series of plots, using the function that was just
+# created, for some of the handwritten digits
+# display the plots for digits 0-8 in a 3 x 3 layout
+
+par(mfrow=c(1, 3))
+
+for (digitNum in seq(0, 2, 1)) {
+  
+  digitTemp <- digitTrain[which(digitTrain$label == digitNum), ]
+  
+  digitImage <- createImage(digitTemp)
+  
+  plot(digitImage, axes = FALSE)
+  
+}
+
+# clean up the environment
+rm(digitNum, digitTemp, digitImage)
+
+```
+
+Observations
+- given the blurriness of the images, there are likely some noisy images
+- the blurrier parts have a greater variation in their pixels
+- the images would be clearer if all of the data were closer together
+
+## Data Preprocessing
+
+Are there any outliers? 
+
+```{r Define Outlier}
+
+# a pixel is an outlier if it falls outside:
+# Q1 - (1.5 * IQR) or Q3 + (1.5 * IQR)
+
+```
+
+```{r Get Outliers Function, include =  FALSE}
+
+# write a function that calculates the IQR for each pixel for the digit provided
+# the digit arg must be a number between 0-9, as in the previous function as well
+# the upperlower arg should be entered as a string either 'upper' or 'lower'
+# this determines whether the function will return the upper or lower outliers
+# the dataframe arg is the 784 column image dataframe
+
+getOutliers <- function(digit, upperlower, dataframe) {
+  
+  # store the provided dataframe as a local variable
+  digitTemp <- dataframe
+  
+  # filter the data by the label provided in the function argument
+  digitTemp <- digitTemp[which(digitTemp$label == digit), ]
+  
+  # create an empty list, will be appended to throughout each iteration
+  OutliersIQR <- c()
+  
+  # uses the number in the sequence to slice out the corresponding pixel
+  for (digitPixels in seq(0, 783, 1)) {
+    
+    # slice out the corresponding pixel based on the number in the sequence
+    # unlist is used so that this comes out in a vector form and not a dataframe
+    vector <- unlist(digitTemp[, which(
+      gsub('pixel', '', colnames(digitTemp)) %in% digitPixels)])
+    
+    # index #5 of the summary function provides the third quartile
+    Q3 = as.numeric(summary(vector)) [5]
+    
+    # index #2 of the summary function provides the first quartile
+    Q1 = as.numeric(summary(vector)) [2]
+    
+    # the interquartile range is = third quartile - first quartile
+    IQR = Q3 - Q1
+    
+    # upper outlier is = Q3 + (1.5 * IQR)
+    # lower outlier is = Q1 - (1.5 * IQR)
+    # which one is calculated is based on the function arg that was passed in
+    if (upperlower == 'upper') {
+          Outlier <- Q3 + (1.5 * IQR)} else if (
+        upperlower == 'lower') {
+          Outlier <- Q1 - (1.5 * IQR)}
+    
+    # append the outlier value to the main list
+    OutliersIQR <- c(OutliersIQR, Outlier)
+    
+  }
+  
+  # finally, return the main list as the function output
+  return(OutliersIQR)
+  
+}
+
+```
+
+```{r Outlier Reference Table, include = FALSE}
+
+# use the function to create a table of IQR's for each pixel for each digit
+# this table will then be referenced for identifying the outliers
+
+# start off by creating empties which will be appended to
+UpperOutlierTest <- data.frame()
+LowerOutlierTest <- data.frame()
+
+# iterating through each handwritten digit from 0-9
+for (digitLabel in seq(0, 9, 1)) {
+  
+  # for the current iteration, retrieve the upper and lower outliers
+  OutlierUpperTemp <- getOutliers(digitLabel, 'upper', digitTrain)
+  OutlierLowerTemp <- getOutliers(digitLabel, 'lower', digitTrain)
+  
+  # the column names to match that of the training data
+  # i.e. 'pixel0', 'pixel1', ... 'pixel783'
+  ColsTemp <- paste0('pixel', seq(0, 783, 1))
+  
+  # put together a data frame for the upper outliers
+  UpperOutlierDF <- data.frame(cbind(
+    'Pixel' = ColsTemp,
+    'IQR' = OutlierUpperTemp))
+  
+  # put together a data frame for the lower outliers
+  LowerOutlierDF <- data.frame(cbind(
+    'Pixel' = ColsTemp,
+    'IQR' = OutlierLowerTemp))
+  
+  # restructuring of the data frame...
+  # just moves the pixel column as the rownames
+  # this sets up for the subsequent transpose
+  UpperOutlierDF <- data.frame('Outlier' = UpperOutlierDF[, 2], row.names = UpperOutlierDF$Pixel)
+  LowerOutlierDF <- data.frame('Outlier' = LowerOutlierDF[, 2], row.names = LowerOutlierDF$Pixel)
+  
+  # restructuring of the data frame...
+  # transpose the dataframe (swap rows and columns)
+  # now reflects same structure as the training data
+  UpperOutlierDF <- t(UpperOutlierDF)
+  LowerOutlierDF <- t(LowerOutlierDF)
+  
+  # restructuring of the data frame...
+  # add row names as the corresponding digit
+  # i.e. 'digit0', 'digit1', ... 'digit9'
+  row.names(UpperOutlierDF) <- paste0('Digit', digitLabel)
+  row.names(LowerOutlierDF) <- paste0('Digit', digitLabel)
+
+  # now that the dataframe are in desired format,
+  # append to the main dataframe
+  UpperOutlierTest <- rbind(UpperOutlierTest, UpperOutlierDF)
+  LowerOutlierTest <- rbind(LowerOutlierTest, LowerOutlierDF)
+  
+}
+
+# clean up the environment
+rm(LowerOutlierDF, UpperOutlierDF, ColsTemp, digitLabel, OutlierLowerTemp, OutlierUpperTemp)
+
+```
+
+```{r Identify Outliers, include = FALSE}
+
+# test the training data for outliers and record how many there are
+# this operation may take a while since it goes through all rows
+  
+  # start off by creating an empty list, this will be appended to
+  OutlierCounts <- c()
+  
+  # iterates through the training data one row at a time
+  for (digitRow in seq(1, nrow(digitTrain), 1)) {
+  
+    # store the label from the current row in the training data
+    TestLabel <- unlist(as.numeric(digitTrain[digitRow, 1]))
+  
+    # store the current row as a flat vector of numbers
+    TestRow <- unlist(as.numeric(digitTrain[digitRow, 2:ncol(digitTrain)]))
+  
+    # store the corresponding upper outliers as a flat vector of numbers
+    OutlierUpperRow <- unlist(as.numeric(UpperOutlierTest[which(grepl(TestLabel, row.names(UpperOutlierTest))), ]))
+  
+    # store the corresponding lower outliers as a flat vector of numbers
+    OutlierLowerRow <- unlist(as.numeric(LowerOutlierTest[which(grepl(TestLabel, row.names(LowerOutlierTest))), ]))
+  
+    # perform logical test, each pixel is tested, the total number of
+    # pixels that are outliers are counted and stored in this temporary variable
+    TempOutlierCount <- sum(as.numeric(TestRow > OutlierUpperRow | TestRow < OutlierLowerRow))
+  
+    # the outlier count from the current row of training data is appended to
+    # the main list of all outlier counts
+    OutlierCounts <- c(OutlierCounts, TempOutlierCount)
+  
+    # print out occasional progress updates at each 1000th iteration
+    if (digitRow %in% seq(1000, 42000, 1000)) {cat('Iteration Complete:', digitRow, '\n')}
+  
+}
+
+# clean up the environment
+rm(digitRow, OutlierLowerRow, OutlierUpperRow, TempOutlierCount, TestLabel, TestRow)
+
+```
+
+```{r Summarize Outlier Results, echo = FALSE}
+
+# create a 2 dimension dataframe with the digit and corresponding outlier count
+
+OutlierMatrix <- as.data.frame(cbind(
+  'label' = digitTrain$label,
+  'outliers' = OutlierCounts))
+
+# show the average number of outliers for each digit
+# are some digits noiser than others?
+# create a dataframe that will help answer this question
+
+OutlierAnalysis <- 
+  
+cbind(
+
+    sqldf('
+      select
+        label,
+        round(avg(outliers), 0) as avgoutliers,
+        
+        /* subquery column as the average number of outliers for all labels */
+        (select round(avg(outliers), 0) from OutlierMatrix) as avgalloutliers
+        
+      from
+        OutlierMatrix
+      group by
+        label'
+    ),
+    
+    'labelcount' = as.numeric(table(digitTrain$label)),
+    
+    'avglabelcount' = nrow(digitTrain) / length(unique(digitTrain$label))
+    
+  )
+
+# add a column which calculates relative outliers for each label
+OutlierAnalysis$relativeoutliers <- round(OutlierAnalysis$avgoutliers / OutlierAnalysis$avgalloutliers, 2)
+
+# add a column which calculates relative label count for each label
+OutlierAnalysis$relativelabels <- round(OutlierAnalysis$labelcount / OutlierAnalysis$avglabelcount, 2)
+
+# add a column which calculates the relative noise level for each label
+# the noise level is the relative label count / the relative outlier count
+# i.e. if there are a lot of outliers and not alot of labels it has more noise
+OutlierAnalysis$noiselevel <- round(OutlierAnalysis$relativeoutliers / OutlierAnalysis$relativelabels, 2)
+OutlierAnalysis$relativenoise <- round(OutlierAnalysis$noiselevel / mean(OutlierAnalysis$noiselevel), 2)
+
+# print out the results from the outlier analysis
+kable(OutlierAnalysis[, which(colnames(OutlierAnalysis) %in% c('label', 'avgoutliers', 'labelcount', 'relativenoise'))])
+
+```
+
+Observations
+-this discovery uncovers some hidden noise in the dataset
+-the noise level varies quite a bit depending on the digit
+-1's have the most training examples, and the lowest relative noise
+-5's have the least training examples, and the second highest noise
+-the digits with lower relative noise will be more accurately predicted
+
+```{r Outlier BoxPlot, echo=FALSE, fig.width = 7, fig.asp = 0.618}
+
+# display boxplot for the outlier distribution for each digit
+
+#- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -#
+
+# create an empty list, this will be appended to in the following loop
+boxplot_main <- c()
+
+# iterate through each piece of the summary function
+# i.e. 6 parts - min, Q1, median, mean, Q3, max
+for (boxplot_part in names(summary(OutlierCounts)) [1:6]) {
+  
+  # store just the value from the current part
+  boxplot_value <- summary(OutlierCounts) [boxplot_part]
+  
+  # store a text object with the part and the value
+  boxplot_full <- paste0(boxplot_part, ': ', round(boxplot_value, 0))
+  
+  # append the text object to the main list seperated by a '|'
+  boxplot_main <- paste(boxplot_main, boxplot_full, '  |  ')
+  
+}
+
+#- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -#
+
+# create the boxplot with some customizations
+OutlierBoxPlot <- boxplot(
+  OutlierMatrix$outliers ~ OutlierMatrix$label,   # partition boxplots by each label
+  main = 'Outlier Counts by Digit',               # add a plot title
+  ylim = c(-40, 197),                             # extend the y axis range as needed
+  xlab = 'Digit Label',                           # get rid of x axis title
+  ylab = 'Outlier Count')                         # change the y axis lab
+
+#- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -#
+
+# add some horizontal lines to the plot
+abline(h = min(OutlierCounts))                                          # minimum line
+abline(h = max(OutlierCounts))                                          # maximum line
+abline(h = (summary(OutlierCounts) ['Median']), lty = 2)                # overall median line
+
+#- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -#
+
+# place header which - the overall summary statistics
+text(
+  x = 5.5,
+  y = 175,
+  paste(boxplot_main),
+  cex = .9)
+
+#- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -#
+
+# clean up the environment
+
+rm(OutlierBoxPlot, boxplot_full, boxplot_main, boxplot_part, boxplot_value)
+
+```
+
+Observations
+-virtually every image has some outlier pixels. Very few perfect images
+-this noise can be mitigated by ommitting the noisiest images
+-what is considered a noisy image varies depending on the digit
+-all outlier images will be removed from the training dataset
+-potentially could cut more noise but do not want to lose too much data
+
+Remove Outlier Images
+
+```{r Remove Outliers, include = FALSE}
+
+# create a new dataframe containing only the images that
+# are not outlier and another one with images that are outlier
+
+# create the dataframe by slicing the training data on
+# the corresponding row indexes from the outlier matrix
+# that was just created in the previous block of code
+
+# add a column as the row numbers to the outlier matrix
+row.names(OutlierMatrix) <- NULL # first reset the rownames
+OutlierMatrix$rownum <- row.names(OutlierMatrix)
+
+# create a reference table for the outlier for each label
+# start with the empty dataframe, this will be appended to
+OutlierReferenceT <- data.frame()
+
+# iterate through each digit 0-9 and get the outlier value
+for (digitNum in seq(0, 9, 1)) {
+  
+  # store a copy of the outlier matrix sliced on the current digit
+  OutlierTemp <- OutlierMatrix[which(OutlierMatrix$label == digitNum), ]
+  
+  # index #5 of the summary function provides the third quartile
+  Q3 = as.numeric(summary(OutlierTemp[, 2])) [5]
+  
+  # index #2 of the summary function provides the first quartile
+  Q1 = as.numeric(summary(OutlierTemp[, 2])) [2]
+  
+  # the interquartile range is = third quartile - first quartile
+  IQR = Q3 - Q1
+  
+  # there are no lower outliers, just need upper outlier boundary
+  OutlierUpperTemp <- Q3 + (1.5 * IQR)
+  
+  # create a temporary table with the necessary information
+  OutlierTableTemp <- as.data.frame(cbind(
+    'label' = digitNum,
+    'upperoutlier' = OutlierUpperTemp))
+  
+  # append the temporary table to the main dataframe
+  OutlierReferenceT <- rbind(OutlierReferenceT, OutlierTableTemp)
+  
+}
+
+# join in the upper outlier boundary from the newly created outlier reference table
+OutlierMatrix <- left_join(OutlierMatrix, OutlierReferenceT, by = c('label' = 'label'))
+
+# create a new column testing as to whether the record is an outlier or not
+OutlierMatrix$testoutlier <- ifelse(OutlierMatrix$outliers > OutlierMatrix$upperoutlier, TRUE, FALSE)
+
+# finally, create 2 seperate dataframes
+# digitFixed has all of the non outlier records
+# digitOutlier has all of the outlier records
+
+digitFixed <- digitTrain[unlist(as.numeric(OutlierMatrix[which(OutlierMatrix$testoutlier == FALSE), 3])), ]
+digitOutlier <- digitTrain[-unlist(as.numeric(OutlierMatrix[which(OutlierMatrix$testoutlier == FALSE), 3])), ]
+
+# clean up the environment
+rm(OutlierAnalysis, OutlierMatrix, OutlierReferenceT, OutlierTableTemp,
+   OutlierTemp, digitNum, IQR, Q1, Q3, OutlierUpperTemp)
+
+```
+
+What are the dimensions of the data after removing the outliers?
+
+```{r Data Dimensions Outliers Removed, echo = FALSE}
+
+cat0(
+  
+    'Training Data Dimensions \n',
+    'Rows = ', dim(digitFixed) [1], ' Cols = ', dim(digitFixed) [2], '\n',
+    'Size = ', format(object.size(digitFixed), units = "Mb", digits = 0),
+    
+    '\n \n',
+    
+    'Outlier Data Dimensions \n',
+    'Rows = ', dim(digitOutlier) [1], ' Cols = ', dim(digitOutlier) [2], '\n',
+    'Size = ', format(object.size(digitOutlier), units = "Mb", digits = 0),
+    
+    '\n \n',
+    
+    'Testing Data Dimensions \n',
+    'Rows = ', dim(digitTest) [1], ' Cols = ', dim(digitTest) [2], '\n',
+    'Size = ', format(object.size(digitTest), units = "Mb", digits = 0)
+    
+    )
+
+```
+
+Observations
+-only the most extreme cases of noise were taken out of the data
+-the dimensionality of the data is still too high for efficient model computation
+-principal component analysis will be performed to reduce the dimensionality
+
+What do the noisy images look like versus the not noisy images?
+
+```{r Noisy Image Vs Not Noisy Image, echo = FALSE}
+
+# take a random sample of one of the perfect images and plot it
+
+set.seed(99)
+digitPerfect <- digitTrain[which(OutlierCounts == min(OutlierCounts)), ]   # create a dataframe of all perfect images
+digitPerfect <- digitPerfect[sample(seq(1:nrow(digitPerfect)), 1), ]       # take one random sample from that dataframe
+imagePerfect <- createImage(digitPerfect)
+plot(imagePerfect, main = 'Crystal Clear', axes = FALSE)
+  
+# take a random sample of an image in the middle and plot it
+
+set.seed(40)
+digitMiddle <- digitTrain[which(OutlierCounts == median(OutlierCounts)), ]   # create a dataframe of middle images
+digitMiddle <- digitMiddle[sample(seq(1:nrow(digitMiddle)), 1), ]            # take one random sample from that dataframe
+imageMiddle <- createImage(digitMiddle)
+plot(imageMiddle, main = 'Fair Enough', axes = FALSE)
+
+# take a random sample of one of the noisy images and plot
+
+set.seed(67)
+digitNoisy <- digitTrain[which(OutlierCounts == max(OutlierCounts)), ]   # create a dataframe with the noisiest image
+digitNoisy <- digitNoisy[sample(seq(1:nrow(digitNoisy)), 1), ]           # take one random sample from that dataframe
+imageNoisy <- createImage(digitNoisy)
+plot(imageNoisy, main = '.....?', axes = FALSE)
+
+# clean up the environment
+rm(digitPerfect, digitMiddle, digitNoisy,
+   imagePerfect, imageMiddle, imageNoisy)
+
+```
+
+Observations
+-the first image is very clear what digit it is
+-the second image is fairly clear what digit it is
+-the third image is not clear what image it is
+
+Perform Principal Component Analysis
+
+```{r Principal Component Analysis, echo = FALSE}
+
+# https://www.youtube.com/watch?v=xKl4LJAXnEA - resource
+
+# run a PCA on the training, testing, and outlier data
+# takes about 3 - 5 minutes from my computer
+
+modelPCATrain     <- prcomp(digitFixed[,   -1])
+modelPCATest      <- prcomp(digitTest[,    -1])
+modelPCAOutlier   <- prcomp(digitOutlier[, -1])
+
+# store the eigen values, variance, and then cum variance
+
+digitEIG <- (modelPCATrain$sdev) ^ 2        # eigen values are the stdev squared
+digitVar <- digitEIG * 100 / sum(digitEIG)  # variance is calculated from the eigen vlaues
+digitCum <- cumsum(digitVar)                # cumulative variances, last number should = 100 %
+
+# plot the cumulative variance to show how many PCAs might be effective
+# about 90% of the variance is explained with 81 PCA's
+
+# reset the plot layout back to normal, since 3 x 3 was used earlier
+par(mfrow=c(1,1))
+
+# create the PCA cumulative variance plot
+plot(digitCum,
+     main = "Principal Component Analysis Cumulative Variance",
+     sub = "About 90% of Variance Explained by First 81 Principal Components \n",
+     xlab = "")
+
+# add a straight horizontal line at the 90% mark to help
+# visualize the selected number of principal components
+abline(h = 90)
+
+# rounding down the PCAs to 81, since that would be about the equivilent
+# of a 9 x 9 pixel image even though this does not necessarily translate
+# i.e. plotting the image would not work using the principal components
+
+# create the training dataframe using the first 81 principal components
+digPCATrain <- data.frame(cbind(
+  
+  "label" = digitFixed$label,
+  modelPCATrain$x[, 1:81]))
+
+# for modeling purposes, change the label to a factor data type
+digPCATrain$label <- as.factor(digPCATrain$label)
+
+# create the outlier dataframe using the first 81 principal components
+digPCAOutlier <- data.frame(cbind(
+  
+  "label" = digitOutlier$label,
+  modelPCAOutlier$x[, 1:81]))
+
+# for modeling purposes, change the label to a factor data type
+digPCAOutlier$label <- as.factor(digPCAOutlier$label)
+
+# create the testing dataframe using the first 81 principal components
+# since there is no label, there is no need to change it to a factor
+digPCATest <- data.frame(cbind(
+  
+  "label" = as.numeric(''),
+  modelPCATest$x[, 1:81]))
+
+# clean up the environment
+rm(digitCum, digitEIG, digitVar)
+
+```
+
+What are the dimensions of the data after performing PCA?
+
+```{r Data Dimensions after PCA, echo = FALSE}
+
+cat0(
+  
+    'Compressed ', ncol(digitTrain) - 1, ' Columns (28 x 28) Into ', 
+    ncol(digPCATrain[, 2:ncol(digPCATrain)]), ' Columns (9 x 9) \n \n',
+    
+    'Training Data Dimensions \n',
+    'Rows = ', dim(digPCATrain) [1], ' Cols = ', dim(digPCATrain) [2], '\n',
+    'Size = ', format(object.size(digPCATrain), units = "Mb", digits = 0),
+    
+    '\n \n',
+    
+    'Outlier Data Dimensions \n',
+    'Rows = ', dim(digPCAOutlier) [1], ' Cols = ', dim(digPCAOutlier) [2], '\n',
+    'Size = ', format(object.size(digPCAOutlier), units = "Mb", digits = 0),
+    
+    '\n \n',
+    
+    'Testing Data Dimensions \n',
+    'Rows = ', dim(digPCATest) [1], ' Cols = ', dim(digPCATest) [2], '\n',
+    'Size = ', format(object.size(digPCATest), units = "Mb", digits = 0)
+    
+    )
+
+```
+
+Size of the training data was reduced by:
+
+```{r Size Reduction Training, echo = FALSE}
+
+paste0('Size Reduction = ', 
+       round(((as.numeric(object.size(digPCATrain)) -
+               as.numeric(object.size(digitTrain))) /
+               as.numeric(object.size(digitTrain))) * 100, 2), '%')
+
+```
+
+Size of the testing data was reduced by:
+
+```{r Size Reduction Testing, echo = FALSE}
+
+paste0('Size Reduction = ', 
+       round(((as.numeric(object.size(digPCATest)) -
+               as.numeric(object.size(digitTest))) /
+               as.numeric(object.size(digitTest))) * 100, 2), '%')
+
+```
+
+# Data Modeling
+
+```{r Cross Validation Function, include = FALSE}
+
+# create a function to automatically partition a dataframe
+# by how many cross validation folds specified
+# seed = how to set the seed, N = cross validation partitions
+
+CVPartitioned <- function(seed, N, dataframe) {
+  
+  # the sample size is the number of rows of the dataframe
+  # divided by the provided number of partitions
+  # use floor function to round down incase of uneven partition
+  samplesize <- floor(nrow(dataframe) / N)
+  
+  # create an empty dataframe, this will be appended to
+  # this dataframe will contain the indexes for the partitions
+  sampleindex <- data.frame()
+  
+  # iterate through each partition one by one
+  for (samplenum in seq(1, N, 1)) {
+    
+    # first set the seed for reproducable results
+    # based on the seed argument provided in the function
+    set.seed(seed)
+    
+    # take random sample, exclusive of previously taken samples
+    sample <- sample(which(! seq(1:nrow(dataframe)) %in% sampleindex$SIndex), samplesize, replace = FALSE)
+    
+    # create a temporary dataframe
+    sampletemp <- data.frame(cbind('SNumber' = samplenum, 'SIndex' = sample))
+    
+    # append the temporary dataframe to the main dataframe
+    sampleindex <- rbind(sampleindex, sampletemp)
+  
+  }
+  
+  # return the main dataframe containing the sample indexes
+  return(sampleindex)
+  
+}
+
+```
+
+The first model will be a C50 decision tree model with a five fold cross validation.
+Model is too complex to visualize but analysis of results is provided
+
+```{r Decision Tree Model, echo = FALSE}
+
+# run the five fold CV decision tree model in a loop
+# uses the C50 decision tree algorithm
+# includes a deep dive on where the model was wrong
+
+# create a variable storing the indexes for the 5 cross validation partitions
+digitSliced <- CVPartitioned(10, 5, digPCATrain)
+
+# create a new empty list, this will be appended to with each partition's accuracy
+TreeAccuracy <- c()
+
+# iterate through each partition 1-5, and compute the decision tree model
+for (digitPart in seq(1, 5, 1)) {
+  
+  # store the training data, all partitions other than the current iteration (4)
+  TempTrain <- digPCATrain[digitSliced[which(digitSliced$SNumber != digitPart), 2], ]
+  
+  # store the testing data, partition is equal to the current iteration (1)
+  TempTest <- digPCATrain[digitSliced[which(digitSliced$SNumber == digitPart), 2], ]
+
+  # compute the C50 decision tree model
+  TempTree <- C5.0(label ~ ., data = TempTrain)
+  
+  # make classification prediction with the model
+  TempPredict <- predict(TempTree, TempTest)
+  
+  # store the accuracy result from the model
+  TempAccuracy <- mean(TempTest$label == TempPredict)
+  
+  # append the accuracy result to the main list of all accuracy results
+  TreeAccuracy <- c(TreeAccuracy, TempAccuracy)
+  
+}
+
+# print out the results of the decision tree model
+
+# print out the average accuracy of all of the models
+cat('Average = ', paste0(round(mean(TreeAccuracy) * 100, 2), '%', '\n'))
+
+# print out the individual accuracy for each model
+for (TempResult in TreeAccuracy) {
+  cat('Cross Validation', which(TreeAccuracy == TempResult), '=', paste0(round(TempResult * 100, 2), '%'), '\n')}
+
+cat('\n') # give a line of white space
+
+# show the confusion matrix
+# predicted values are on the horizontal
+# actual values are on the vertical
+confusionMatrix(table(TempTest$label, TempPredict))$table
+
+cat('\n') # give a line of white space
+
+# show a little report of the accuracies by number and where
+# the top 2 misclassifications were for that number
+
+# iterate through each handwritten digit from 0 to 9
+for (TempNum in seq(0, 9, 1)) {
+  
+  # number of actual labels in the training data for the current digit
+  NumActual <- length(which(TempTest$label == TempNum))
+  
+  # number of correctly predicted labels for the current digit
+  NumCorrect <- confusionMatrix(table(TempTest$label, TempPredict))$table[TempNum+1 , TempNum+1]
+  
+  # accuracy percentage for the current digit
+  # the accuracy is calculated by = 1 - abs % error
+  AccuracyScore <- paste0(round((1 - (abs(NumCorrect - NumActual) / NumActual)) * 100, 2), '%')
+  
+  # store the top 2 largest misclassifications
+  TopMissValue <-
+    sort((confusionMatrix(table(TempTest$label, TempPredict))$table[, TempNum+1]) [-(TempNum+1)], decreasing = TRUE)
+  
+  # format the top 2 largest misclassifications
+  TopMissPrint <-
+    paste(names(TopMissValue), paste(as.numeric(TopMissValue), 'Misses |'), sep = ' --> ') [1:2]
+  
+  # print out the report for the current digit
+  cat(TempNum, '--->',
+      'NumCorrect =', NumCorrect, '|',
+      'NumActual = ', NumActual, '|',
+      'Accuracy = ', AccuracyScore, '|',
+      'Top2Misses', TopMissPrint, '\n')}
+
+# clean up the environment
+
+rm(digitSliced, TempTree, TempAccuracy, TempPredict, TempNum, TempResult, TreeAccuracy,
+   NumActual, NumCorrect, AccuracyScore, TopMissValue, TopMissPrint, digitPart)
+
+```
+
+Observations
+-3s and 5s, 4s and 9s, 7s and 9s, got confused alot
+-the decision algorithm is sensitive to noise
+-this explains why it did best on the 1 and worst on the 5
+-it also was not relatively computationally efficient
+
+The next model will be naive bayes. Discretized the PCA dimensions into
+bins 1 - 10 and compared model performance for each bin size.
+
+```{r Naive Bayes Model, echo = FALSE}
+
+# create a function which runs the naive bayes,
+# option to discretize the PCA components into N bins
+# the PCA components must be discretized for this model
+
+digitRunNaiveBayesModel <- function(discretizeNbins) {
+  
+# discretize the PCA reduced dimensionality dataframe
+
+digitDisc <- data.frame(cbind(
+  "labels" = .GlobalEnv$digPCATrain$label,
+  .GlobalEnv$digPCATrain[, 2:ncol(digPCATrain)] %>% mutate_all(
+    discretize, method = "frequency", breaks = discretizeNbins)))
+
+# create an 80/20 data partition for the training data
+
+set.seed(10)
+TempSample <- createDataPartition(digitDisc$label, p = 0.80, list = FALSE)
+.GlobalEnv$TempTrain <- digitDisc[TempSample, ] 
+.GlobalEnv$TempTest <- digitDisc[-TempSample, ]
+
+# implement the naive bayes model and record the results
+
+digitBayes <- naiveBayes(TempTrain[, -1], TempTrain[, 1])
+.GlobalEnv$TempPredict <- predict(digitBayes, TempTest[, -1])
+Accuracy <- mean(.GlobalEnv$TempPredict == TempTest[, 1])
+
+return(Accuracy)
+
+}
+
+# run a for loop to try out different numbers of bins,
+# and then show a plot of the performances by number of bins
+
+# initialize an empty dataframe, thi will be appended to
+BayesAccuracyTable <- data.frame()
+
+# iterate through different number of bins, 1 through 10 bins
+for (modeltest in seq(1, 10, 1)) {
+  
+  # store the accuracy result of the model
+  TempAccuracy <- digitRunNaiveBayesModel(modeltest)
+  
+  # create a temporary dataframe with a column for the
+  # num of bins and a column for the accuracy result
+  TempTable <- data.frame(cbind(
+    'NumBins' = modeltest,
+    'Accuracy' = TempAccuracy))
+  
+  # append the temporary dataframe to the main dataframe
+  BayesAccuracyTable <- rbind(BayesAccuracyTable, TempTable)
+  
+  # print out a progress update after each model that is completed
+  cat('Model Complete |',
+      '# of bins =', modeltest,
+      '| Accuracy =', paste(round(TempAccuracy * 100, 2), '%'), '\n')
+}
+
+# show plot of the results
+ggplot(BayesAccuracyTable, aes(
+  x = NumBins,
+  y = Accuracy)) +
+  geom_line() +
+  geom_point() +
+  ggtitle('Learning Curve for Naive Bayes Per PCA # of Bins')
+
+# 10 bins seems to be a fair number of bins
+# there really is no more benefit to more bins
+# analyze where the model misses were
+
+cat('\n', 'Confusion Matrix for 10 Bin Model')
+
+confusionMatrix(table(TempTest$label, TempPredict))$table
+
+cat('\n', 'Accuracy and Top 2 Misses by Digit', '\n')
+
+# print out the same report that was printed out in 
+# decision tree model. Reference back to that code for
+# commentary if needed. Ommitted here to reduce redundancy.
+
+for (TempNum in seq(0, 9, 1)) {
+  
+  NumActual <- length(which(TempTest$label == TempNum))
+  
+  NumCorrect <- confusionMatrix(table(TempTest$label, TempPredict))$table[TempNum+1 , TempNum+1]
+  
+  AccuracyScore <- paste0(round((1 - (abs(NumCorrect - NumActual) / NumActual)) * 100, 2), '%')
+  
+  TopMissValue <-
+    sort((confusionMatrix(table(TempTest$label, TempPredict))$table[, TempNum+1]) [-(TempNum+1)], decreasing = TRUE)
+  
+  TopMissPrint <-
+    paste(names(TopMissValue), paste(as.numeric(TopMissValue), 'Misses |'), sep = ' --> ') [1:2]
+  
+  cat(TempNum, '--->',
+      'NumCorrect =', NumCorrect, '|',
+      'NumActual = ', NumActual, '|',
+      'Accuracy = ', AccuracyScore, '|',
+      'Top2Misses', TopMissPrint, '\n')}
+
+# clean up the environment
+
+rm(BayesAccuracyTable, modeltest, TempTable, AccuracyScore,
+   NumActual, NumCorrect, TempAccuracy, TempNum, TempPredict,
+   TopMissPrint, TopMissValue, digitRunNaiveBayesModel)
+
+```
+
+Observations
+-the naive bayes model was more accurate than the decision tree
+-it was also computationally faster than the decision tree
+-any number of bins between 5-10 should be fine. No benefit after that.
+
+The next model will be a k nearest neighbors model. K values 1 - 10 will be
+used and the models will be compared.
+
+```{r KNN model, echo = FALSE}
+
+# notes from week 8 async
+# K should be odd or there needs to be a good tie breaking schema in place
+
+# for the nearest neighbors model the label must be numeric
+digPCATrain$label <- as.numeric(digPCATrain$label)
+
+# Knn prediction with different K values
+KnnAccuracyTable <- data.frame()
+
+# iterate through different Kvalues, K = 1 through 10
+
+for (Kvalue in seq(1, 10, 1)) {
+
+  set.seed(1000)
+  
+  # first cut the data into a tenth, due to computational constraint
+  # then create an 80 / 20 data partitions for the data
+  
+  TempSample <- createDataPartition(digPCATrain$label, p = 0.2, list = FALSE)
+  TempTrain <- digPCATrain[TempSample, ]
+  TempSample <- createDataPartition(TempTrain$label, p = 0.8, list = FALSE)
+  TempTrain <- TempTrain[TempSample, ]
+  TempTest <- TempTrain[-TempSample, ]
+  
+  # store the current system time as the model start time
+  modStartTime <- Sys.time()
+  
+  # perform the k nearest neighbor model for the current iteration
+  predKNN <- knn(train = TempTrain[, 2:ncol(TempTrain)],  # training data (minus the label)
+                 test = TempTest[, 2:ncol(TempTest)],     # testing data (minus the label)
+                 cl = TempTrain[, 1],                     # labels for the training data
+                 k = Kvalue)                              # k value for the current iteration
+  
+  # store the current system time as the model end time
+  modEndTime <- Sys.time()
+  
+  # store the result from the model
+  ResKNN <- paste0(round(mean(predKNN == TempTest$label) * 100, 2), '%')
+  
+  # capture the amount of time that it took to run the model
+  modRunTime <- round(as.numeric((modEndTime - modStartTime) / 60), 2)
+  
+  # create a temporary table with the result
+  TempTable <- data.frame(cbind(
+    'NumK' = Kvalue,
+    'Accuracy' = ResKNN,
+    'RunTime' = modRunTime))
+  
+  # append the temporary table to the main table
+  KnnAccuracyTable <- rbind(KnnAccuracyTable, TempTable)
+  
+  # print out progress updates as the models are completed
+  cat('Model Complete',
+      '| K =', Kvalue,
+      '| Accuracy =', ResKNN,
+      '| RunTime =', modRunTime, 'Minutes \n')
+  
+}
+
+# clean up the enviroment
+rm(KnnAccuracyTable, TempSample, TempTable, TempTest, TempTrain,
+   Kvalue, predKNN, ResKNN, modEndTime, modRunTime, modStartTime)
+
+```
+
+Observations
+-accuracy is significantly higher for the knn model
+-interesting that 100% accurate at k = 1
+-there is likely some overtraining occurring
+
+The next model will be support vector machine model. Several different cost
+values will be used and the models will be compared.
+
+```{r SVM Model, echo = FALSE}
+
+# week 8 asynchronous notes
+# set the kernel function as a free parameter to tune the model
+# the second free parameter is the cost function
+
+# for the SVM model the labels can be changed back to a factor
+digPCATrain$label <- as.factor(digPCATrain$label)
+
+# SVM prediction with different C values
+SVMAccuracyTable <- data.frame()
+
+# iterate through different Cvalues, C = 1 through 5 by .5
+
+for (Cvalue in seq(.3, 3, .3)) {
+
+  set.seed(1000)
+  
+  # first cut the data into a fifth, due to computational constraint
+  # then create an 80 / 20 data partitions for the data
+  
+  TempSample <- createDataPartition(digPCATrain$label, p = 0.2, list = FALSE)
+  TempTrain <- digPCATrain[TempSample, ]
+  TempSample <- createDataPartition(TempTrain$label, p = 0.8, list = FALSE)
+  TempTrain <- TempTrain[TempSample, ]
+  TempTest <- TempTrain[-TempSample, ]
+  
+  # store the current system time as the model start time
+  modStartTime <- Sys.time()
+  
+  # perform the SVM model for the current iteration
+  modSVM <- svm(label ~ ., data = TempTrain, cost = Cvalue)
+  
+  # store the current system time as the model end time
+  modEndTime <- Sys.time()
+  
+  # use the SVM model to make the predictions
+  predSVM <- predict(modSVM, TempTest[, 2:ncol(TempTest)], type = c("class"))
+  
+  # store the result from the model
+  ResSVM <- paste0(round(mean(predSVM == TempTest$label) * 100, 2), '%')
+  
+  # capture the amount of time that it took to run the model
+  modRunTime <- round(as.numeric((modEndTime - modStartTime) / 60), 2)
+  
+  # create a temporary table with the result
+  TempTable <- data.frame(cbind(
+    'NumC' = Cvalue,
+    'Accuracy' = ResSVM,
+    'RunTime' = modRunTime))
+  
+  # append the temporary table to the main table
+  SVMAccuracyTable <- rbind(SVMAccuracyTable, TempTable)
+  
+  # print out progress updates as the models are completed
+  cat('Model Complete',
+      '| C =', Cvalue,
+      '| Accuracy =', ResSVM,
+      '| RunTime =', modRunTime, 'Minutes \n')
+  
+}
+
+```
+
+```{r SVM Plot, echo = FALSE}
+
+ggplot(SVMAccuracyTable, aes(
+  x = as.numeric(NumC),
+  y = as.numeric(gsub('%', '', Accuracy)))) +
+  geom_point() +
+  ggtitle("SVM Model Accuracy by Cvalue") +
+  xlab("Cost Value") +
+  ylab("Accuracy %")
+
+# clean up the environment
+rm(TempSample, TempTable, TempTest, TempTrain, modSVM,
+   Cvalue, predSVM, ResSVM, modEndTime, modRunTime, modStartTime)
+
+```
+
+Observations
+-the SVM model is very accurate
+-once the cost is increased to 0.9, the accuracy becomes 100%
+
+The next model will be random forest. Several different number of 
+trees will be used and the models will be compared.
+
+```{r Random Forest Model, echo = FALSE}
+
+# for random forest the labels can be factor type
+digPCATrain$label <- as.factor(digPCATrain$label)
+
+# random forest prediction with different number of trees
+ForestAccuracyTable <- data.frame()
+
+# iterate through different number of trees, T = 10 through 100 by 10
+for (Tvalue in seq(10, 100, 10)) {
+
+  # set the seed so that the results are reproduceable
+  set.seed(500)
+  
+  # create an 80 / 20 data partitions for the data
+  # random forest is pretty efficient computing with all of the training data
+  
+  TempSample <- createDataPartition(digPCATrain$label, p = 0.8, list = FALSE)   # take sample 80 / 20 split
+  TempTrain <- digPCATrain[TempSample, ]                                        # training data is the 80% 
+  TempTest <- digPCATrain[-TempSample, ]                                        # testing data is the 20%
+  
+  # store the current system time as the model start time
+  modStartTime <- Sys.time()
+  
+  # perform the random forest model for the current iteration
+  modForest <- randomForest(label ~ ., data = TempTrain, ntree = Tvalue)
+  
+  # store the current system time as the model end time
+  modEndTime <- Sys.time()
+  
+  # use the SVM model to make the predictions
+  predForest <- predict(modForest, TempTest[, 2:ncol(TempTest)], type = c("class"))
+  
+  # store the result from the model
+  resForest <- paste0(round(mean(predForest == TempTest$label) * 100, 2), '%')
+  
+  # capture the amount of time that it took to run the model
+  modRunTime <- round(as.numeric((modEndTime - modStartTime) / 60), 2)
+  
+  # create a temporary table with the results
+  TempTable <- data.frame(cbind(
+    'NumTrees' = Tvalue,
+    'Accuracy' = resForest,
+    'RunTime' = modRunTime))
+  
+  # append the temporary table to the main table
+  ForestAccuracyTable <- rbind(ForestAccuracyTable, TempTable)
+  
+  # print out progress updates as the models are completed
+  cat('Model Complete',
+      '| NTrees =', Tvalue,
+      '| Accuracy =', resForest,
+      '| RunTime =', modRunTime, 'Minutes \n')
+  
+}
+
+```
+
+```{r Random Forest Plot, echo = FALSE}
+
+ggplot(ForestAccuracyTable, aes(
+  x = as.numeric(NumTrees),
+  y = as.numeric(gsub('%', '', Accuracy)))) +
+  geom_point() +
+  ggtitle("Random Forest Model Accuracy by Number of Trees") +
+  xlab("NumTrees") +
+  ylab("Accuracy %")
+
+# clean up the environment
+rm(TempSample, TempTable, TempTest, TempTrain, modEndTime,
+   modRunTime, modStartTime, predForest, resForest, Tvalue)
+
+```
+
+Observations
+-the random forest models take longer to train for more trees
+-the accuracy incrementally increases with number of trees
+-the accuracy does start to level off after 50 trees
+
+# Conclusions
+
+At first when I developed the models, I had not done anything about
+the outliers in the data. I eventually came to my senses that it would be
+helpful to do so, and I am glad that I did, because as it turns out this
+did increase the accuracy by several percentage points on each model.
+
+The decision tree and naive bayes models did not perform well enough
+for this task. I am not confident that either of these models
+are the best model for the task at hand. 
+
+The accuracy for the remaining models were similar, with the best
+performance coming from support vector machine. The knn model
+did reach 100% accuracy with a kvalue of 1, but I am not sure if this
+makes sense or not. Therefore, SVM model was the best.
+
+I do plan on submitting this project to kaggle, which will be my
+first ever kaggle submission. There are a few things that I hope
+to modify before doing so that I did not have time to do before
+this homework assignment was due.
+
+I would like to see if there is a model that can predict the outliers
+seperately. I will need to do some further data exploration to justify
+if this would make sense or not. I will also clean up my code and rmd
+output a little bit more
+
+Overall, I had a lot of fun with this assignment and learned alot. I
+believe that this assignment helped me grow as a data scientist.
+I started to organize my code better and use comments more effectively
+to explain what the code is doing. I am happy with the results that I
+have gotten in this assignment.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
