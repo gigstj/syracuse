@@ -4,7 +4,7 @@ https://www.linkedin.com/in/john-santerre-phd-91609b6/<br><br>
 
 Date of course start and finish
 
-9/23/2020 - 12/15/2020<br><br>
+09/23/2020 - 12/15/2020<br><br>
 
 Course description reference link
 
