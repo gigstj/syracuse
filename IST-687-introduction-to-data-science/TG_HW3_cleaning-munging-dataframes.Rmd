@@ -8,7 +8,7 @@ Homework 3
 Due Date: 10/26   
 
 **Step 1: Create a function (named readStates) to read a CSV file into R**  
-**Step 2:	Clean	the	dataframe**
+**Step 2: Clean the dataframe**  
 
 ```{r}
 #read in the census data set
