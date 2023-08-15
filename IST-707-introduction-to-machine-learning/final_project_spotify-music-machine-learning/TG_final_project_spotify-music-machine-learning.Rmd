@@ -1,0 +1,5049 @@
+---
+output:
+  word_document: default
+---
+## Final Project Predicting Song Popularity
+
+By Annie Titus, Tyler Gigot, Daniel Stalica
+
+Syracuse University - IST 707 - Spring 2021
+
+https://www.kaggle.com/edalrami/19000-spotify-songs/discussion/73524
+<p>&nbsp;</p>
+
+## Project Introduction
+
+The music industry has evolved a lot over the last several decades and will continue
+to evolve. This is in part due to advancements in technology. It is hard to believe
+that not too long ago CD players were still commonplace for listening to music,
+while nowadays, companies such as Spotify provide on demand streaming of music directly
+to any device. Not only has the method of listening to music changed due to technology,
+but the sound of the music itself has changed as well. For example, a lot of recordings
+are now digitally enhanced and new genres have emerged based on pure digital production
+such as electronic dance music and dubstep.
+
+More recent developments in technology allow for attributes about songs to be extracted from
+an audio file. For example, the Organize Your Music tool, is an online tool that takes
+a song or a selection of songs and gathers information on them. It gathers attributes such as
+the song tempo, energy, and danceability, among others. This enables a new perspective
+of music to be explored and analyzed, which leads into the purpose of this project.
+
+The following project will explore a Kaggle dataset consisting of thousands of songs with
+these attributes. Here are some examples of questions that will attempt to be answered.
+What makes a song popular? Are there certain attributes that are correlated with popular
+songs? How have popular songs changed overtime? Can the popularity of a song be predicted
+based on its attributes? The primary objective will be predicting the popularity of a song.
+
+Song popularity is important because having a popular song can mean many different things to an
+artist. One benefit it has is the influence and trajectory it can take an artists' career. One
+song can make or break a new artist. Many artists strive to go 'viral' with a song that can bring
+the spotlight that they are looking for. Producers of music and labels can also benefit
+from understanding what makes a song popular. Having that knowledge can help them create a
+hit song, and thus, improve their profitability and chances of breeding successful artists.
+
+In the era of the internet and social media any song could pop off at any time if it has
+the right sound. As the music industry and consumer listening preferences continue to change,
+it is very important for the creators of music to stay on top of these trends and prepare for them.
+
+\newpage
+
+## Data Preparation
+
+Two original datasets from Kaggle, song_data and song_info, are used along with
+two additional datasets, master_song_T and master_artist_T, which were collected
+via web scraping wikepedia.
+
+Web scraping was conducted to collect additional data about the songs
+and artists which is not included in the original datasets from Kaggle. For example,
+when a song was released is a crucial piece of information that was missing.
+
+The code for the web scraping is not provided in the output of this report,
+however it is available in the source code. As mentioned before, the data
+from the web scraping has been packaged into two csv files for convenience.
+
+The goal of this section is to provide the reader with the necessary background
+of the data. In the following section, each of the datasets will be described in more
+detail along with any data preprocessing that took place. 
+
+```{r Load Packages, include = FALSE}
+
+# here are the packages needed and what they are used for
+# make sure that these packages are installed prior to running
+
+require(readr)               # read in the csv files
+require(dplyr)               # mutate_all, pipe operator, joins
+require(ggplot2)             # ggplot visualizations
+require(stringr)             # string operations
+require(arules)              # association rules mining
+require(sqldf)               # some sql sauce
+require(knitr)               # print out better looking tables
+require(reshape2)            # casting and melting
+require(Boruta)              # variable significance testing
+require(class)               # knn model
+require(caret)               # createDataPartition function
+require(corrplot)            # correlation plot
+require(correlationfunnel)   # binarization function
+require(rattle)              # fancy r decision tree plot
+require(C50)                 # decision tree modeling
+require(randomForest)        # random forest modeling
+require(neuralnet)           # neural network modeling
+require(rpart)               # decision tree modeling
+require(rpart.plot)          # decision tree visualization
+require(e1071)               # naive bayes
+require(caret)               # create data partition function
+require(factoextra)          # cluster visualization
+
+```
+
+```{r View Struc Function, include = FALSE}
+
+# custom function to view dataframe structure
+view_struc <- function(df) {
+  
+  # start off with an empty dataframe
+  temp_var <- data.frame()
+  
+  # store the col names of the dataframe
+  df_cols <- colnames(df)
+  
+  # iterate through each column
+  for (x in df_cols) {
+    
+    # name of the column
+    name <- x
+    
+    # data type of the column
+    type <- data.class(df[, which(colnames(df) == x)])
+    
+    # concatenate name and type
+    line <- paste0(name, ': ', type)
+    
+    # append to the main dataframe
+    temp_var <- rbind(temp_var, line)
+  }
+
+# print out a line delimiter above
+print('~~~~~~~~~~~~~~~~~~~~~~~')
+
+# print out the dataframe structure
+for (row in temp_var[1:nrow(temp_var),]) {
+  print(row)}
+
+# print out a line delimiter below
+print('~~~~~~~~~~~~~~~~~~~~~~~')
+
+}
+
+```
+
+```{r Load Data}
+
+#---------------------------------------------------------------------------#
+
+# load the data
+# make sure the files are saved in current working directory
+
+# the first two data sets can be downloaded from kaggle
+# https://www.kaggle.com/edalrami/19000-spotify-songs/discussion/73524
+
+song_data         <- read.csv("song_data.csv")
+song_info         <- read.csv("song_info.csv")
+
+# the second two datasets are provided seperately
+# these two datasets come from web scraping wikipedia
+
+master_artist_T   <- read.csv("master_artist_T.csv")
+master_song_T     <- read.csv("master_song_T.csv")
+
+```
+
+```{r Delineator 1}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Data Header, echo = FALSE, results = 'asis'}
+
+# print out the dataframe name in boldface
+
+cat(paste("**", 'table: ', deparse(substitute(song_data)), "**", sep=""))
+    
+```
+
+The song_data table is an original dataset from Kaggle, which consists of a
+collection of songs that were parsed via the Organize Your Music tool.
+
+Note: there were many duplicate song names, without a way of uniquely identifying
+them. For this reason, duplicate song names were removed.
+
+```{r Delineator 2}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Data Original Dim, echo = FALSE}
+
+# print out the dimensions of the original dataframe
+
+cat('Original Table Dimensions \n',
+  paste(nrow(song_data), ' rows by ', ncol(song_data), ' cols'))
+    
+```
+
+```{r Clean Song Data, echo = FALSE}
+
+# sql sauce to get the count of each song
+
+song_counts <- as.data.frame(sqldf('
+  select
+    song_name,
+    count(song_name) as count
+  from
+    song_data
+  group by
+    song_name'
+))
+
+# join the song data and song counts table
+
+song_data <- left_join(
+  song_data,
+  song_counts,
+  by = c('song_name' = 'song_name')
+)
+
+# remove any song with a count > 1
+
+song_data <- song_data[which(
+  song_data$count == 1), 1:15]
+
+# print out the dimensions of the cleaned dataframe
+
+cat('Cleaned Table Dimensions \n',
+  paste(nrow(song_data), ' rows by ', ncol(song_data), ' cols'), '\n \n',
+  'Removed', nrow(read.csv("song_data.csv")) - nrow(song_data), 'Duplicate song_name')
+
+# clean up the environment
+
+rm(song_counts)
+
+```
+
+```{r Song Data Struc, echo = FALSE}
+
+# print out the structure of the dataframe
+view_struc(song_data)
+
+```
+
+```{r Delineator 3}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Data Metadata}
+
+# meta data from http://organizeyourmusic.playlistmachinery.com/
+
+# song_name         - the name of the song
+# song_popularity   - the higher the value the more popular the song is
+# song_duration_ms  - the length of the song measured in milliseconds
+# acousticness      - the higher the value the more acoustic the song is
+# danceability      - the higher the value, the easier it is to dance to
+# energy            - the higher the value, the more energtic the song is
+# instrumentalness  - the higher the value, the more instrumental the song is
+# key               - description not provided
+# liveness          - the higher the value, more likely a live recording
+# loudness          - the higher the value, the louder, measured in dB
+# audio_mode        - description not provided
+# speechiness       - the higher the value the more spoken word in the song
+# tempo             - the tempo of the song measured in beats per minute
+# time_signature    - description not provided
+# audio_valence     - the higher the value, the more positive mood
+
+```
+
+```{r Delineator 4}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Info Header, echo = FALSE, results = 'asis'}
+
+# print out the dataframe name in boldface
+
+cat(paste("**", 'table: ', deparse(substitute(song_info)), "**", sep=""))
+    
+```
+
+The song_info table is an original dataset from Kaggle which contains the
+corresponding artist, album, and playlist for each song in the song_data table.
+
+Note: as in the song_data table, there were duplication errors in this table
+as well. This is resolved in the same manner by removing duplicate song names.
+
+```{r Delineator 5}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Info Original Dim, include = FALSE}
+
+#---------------------------------------------------------------------------#
+
+# print out the discovery of how many unique there are of each attribute
+
+cat('Unique artist_name:',    length(unique(song_info$artist_name)), '\n',   # unique artists     = 7,564
+    'Unique album_name:',     length(unique(song_info$album_names)), '\n',   # unique albums      = 12,014
+    'Unique playlist:',       length(unique(song_info$playlist)))            # unique playlists   = 300
+
+#---------------------------------------------------------------------------#
+
+# what identifies a song as unique?
+
+cat('Unique song_name | artist_name:',                           dim(unique(song_info[,1:2])) [1], '\n',          # unique song-artist                  = 14,006
+    'Unique song_name | artist_name | album_name:',              dim(unique(song_info[,1:3])) [1], '\n',          # unique song-artist-album            = 14,615
+    'Unique song_name | artist_name | playlist:',                dim(unique(song_info[,c(1, 2, 4)])) [1], '\n',   # unique song-artist-playlist         = 18,813
+    'Unique song_name | artist_name | album_name | playlist:',   dim(unique(song_info[,1:4])) [1], '\n')          # unique song-artist-album-playlist   = 18,828
+
+#---------------------------------------------------------------------------#
+
+# Observations
+# - there are a number of duplicate song names in the data
+# - the way to uniquely identify would be song-artist
+# - but the song_data table does not have artist name
+
+```
+
+```{r Song Info Original Dimensions, echo = FALSE}
+
+# print out the dimensions of the original dataframe
+
+cat('\n Original Table Dimensions \n',
+  paste(nrow(song_info), ' rows by ', ncol(song_info), ' cols'))
+    
+```
+
+```{r Song Info Split, echo = FALSE}
+
+# keep only the non duplicate songs
+
+song_info <- song_info[song_info$song_name %in% song_data$song_name, ]
+
+# print out the dimensions of the cleaned dataframe
+
+cat('Cleaned Table Dimensions \n',
+  paste(nrow(song_info), ' rows by ', ncol(song_info), ' cols'), '\n \n',
+  'Removed', nrow(read.csv("song_info.csv")) - nrow(song_info), 'Duplicate Song Names')
+
+```
+
+```{r Song Info Struc, echo = FALSE}
+
+# print out the structure of the dataframe
+view_struc(song_info)
+
+```
+
+```{r Delineator 6}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Info Metadata}
+
+# song_name         - the name of the song
+# artist_name       - the name of the corresponding artist(s)
+# album_names       - the name of the corresponding album(s)
+# playlist          - the name of the corresponding playlist(s)
+
+```
+
+```{r Delineator 7}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Master Song T Header, echo=FALSE, results='asis'}
+
+cat(paste("**", 'table: ', deparse(substitute(master_song_T)), "**", sep=""))
+
+```
+
+The master_song_T table was collected by web scraping wikipedia pages
+for additional information about the songs.
+
+```{r Delineator 8}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Master Song T Dim, echo=FALSE}
+
+# remove duplicate songs from the master song table
+# this table was created prior to removal of duplicate songs
+
+master_song_T <- master_song_T[master_song_T$song_name %in% song_data$song_name, ]
+master_song_T <- master_song_T[, -which(colnames(master_song_T) %in% c('song_id', 'artist_name'))]
+
+# print out the dimensions of the master song table
+
+cat(paste(nrow(master_song_T), ' rows by ', ncol(master_song_T), ' cols'))
+    
+```
+
+```{r Master Song T Struc, echo=FALSE}
+
+view_struc(master_song_T)
+
+```
+
+```{r Delineator 9}
+
+#---------------------------------------------------------------------------#
+
+```
+
+\newpage
+
+```{r Delineator 10}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Master Song T Metadata}
+
+# song_name         - the name of the song
+# song_single       - binary whether the song is a single or not
+# song_released     - the year that the song was released in
+# song_genre        - the corresponding genre(s) for the song
+# song_label        - the corresponding label(s) for the song
+# song_songwriter   - the corresponding songwriter(s) for the song
+# song_producer     - the corresponding producer(s) for the song
+
+```
+
+```{r Delineator 11}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Master Artist T Header, echo=FALSE, results='asis'}
+
+cat(paste("**", 'table: ', deparse(substitute(master_artist_T)), "**", sep=""))
+
+```
+
+The master_artist_T table was constructed by web scraping wikipedia pages
+for additional artist information.
+
+```{r Delineator 12}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Master Artist T Dim, echo=FALSE}
+
+# print the dimensiosn of the master artist table
+
+cat(paste(nrow(master_artist_T), ' rows by ', ncol(master_artist_T), ' cols'))
+    
+```
+
+```{r Master Artist T Struc, echo=FALSE}
+
+view_struc(master_artist_T)
+
+```
+
+```{r Delineator 13}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Master Artist T Metadata}
+
+# artist_name       - the name of the artist
+# birthday          - the date that the artist was born
+# country           - 2 values - either USA or foreign
+# startyear         - the year that the artist started making music
+
+```
+
+```{r Delineator 14}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Plot Database ERD, include = FALSE}
+ 
+# clean up the environment
+rm(view_struc)
+
+```
+
+\newpage
+
+##### Song Release Year
+
+The song release year was one of the attributes that was retrieved from
+web scraping Wikipedia. Here is how the distribution of the song release years looks.
+
+Note: there are a large number of missing song years due to the data
+not being available on Wikipedia which are not displayed on the graph below.
+
+```{r Song Year Frequency, echo=FALSE, fig.height=5, fig.width=10}
+
+plot(data.frame(table(master_song_T$song_released, useNA = c("always"))),
+  main = 'Frequency of Number of Songs by Year',
+  xlab = 'Song Release Year')
+text(x = 85, y = 600, '2018')
+text(x = 84, y = 410, '2017')
+
+```
+
+**Observations**  
+- there are more newer generation songs than older generation songs  
+- there is a particularly larger number of songs between 2010 and 2020  
+- there is a large spike in the number of songs released in 2017-2018  
+- the bias is probably due to the preferences of the creator of the data  
+- there are some outliers, such as year 712, which is not a valid year
+
+<p>&nbsp;</p>
+
+```{r Delineator 15}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Remove Outlier Years}
+
+# years prior to 1970 and later than 2020 thrown out due to lack of data
+# this will also take care of any outliers outside of the date range
+# NA's will be kept because although the year is not known there a lot of data
+
+cat('Number of Songs Removed:',
+    nrow(master_song_T) - nrow(master_song_T[which(
+                            (master_song_T$song_released >= 1970  &
+                            master_song_T$song_released <= 2020) |
+                            is.na(master_song_T$song_released)), ]))
+
+```
+
+```{r Delineator 16}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Min Max Transformation Function, include = FALSE}
+
+# create a function to standardize using a min max transformation
+# the dataframe argument is the dataframe containing the columns to transform
+# the columns argument is a numerical vector of which columns to transform
+min_max_transform <- function(dataframe, columns) {
+  
+  # create a new version that will be the standardized version
+  standardized <- dataframe   # first create a copy
+  
+  # iterate through each of the columns from the columns argument
+  for (column in columns) {
+    
+    # temporarily store the values for the column
+    temp_column <- unlist(as.numeric(standardized[, column]))
+    
+    # temporarily store the min and max for the column 
+    temp_min <- min(temp_column)
+    temp_max <- max(temp_column)
+    
+    # transform the column based on the min max transformation
+    new_column <- (temp_column - temp_min) / (temp_max - temp_min)
+    
+    # change the column to the transformed column
+    standardized[, column] <- new_column
+  
+  }
+  
+  # return the standardized dataframe as the output of the function
+  return(standardized)
+  
+}
+
+```
+
+##### Discretize Song Release Year into Song Decade
+
+The song years will be discretized into bins containing one decade per bin. This
+is based on (a) the assumption that decades of music tend to have similar sounds
+and (b) inferring song decade rather than inferring song year will be more accurate.
+
+```{r Discretize Song year, include = FALSE}
+
+#---------------------------------------------------------------------------#
+
+# create a new version with song year discretized
+# seperate the ones with year and the ones without
+# these tables will be joined back together
+
+song_generations <- master_song_T[which(
+  master_song_T$song_released %in% seq(1960, 2020, 1)), c(1, 3)]
+
+song_unknownyear <- master_song_T[which(
+  is.na(master_song_T$song_released)), c(1, 3)]
+
+# used custom discretize for graphing purposes
+
+# start off with an empty variable
+song_year_discretized <- c()
+
+# iterate through each of the songs
+for (song_year in song_generations$song_released) {
+  
+  # use if else tests to bin the song year
+  temp_song_year <- ifelse(
+    song_year >= 1970 & song_year < 1980, '1970s', ifelse(
+    song_year >= 1980 & song_year < 1990, '1980s', ifelse(
+    song_year >= 1990 & song_year < 2000, '1990s', ifelse(
+    song_year >= 2000 & song_year < 2010, '2000s', ifelse(
+    song_year >= 2010 & song_year < 2020, '2010s', NA)))))
+  
+  # add the discretized song year to the main
+  song_year_discretized <- c(song_year_discretized, temp_song_year)
+  
+}
+
+# change song year to the discretized song year
+song_generations$song_released <- song_year_discretized
+
+# combine the two tables back into one table
+new_song_T <- rbind(song_generations, song_unknownyear)
+
+# change the ones with NA's to 'NA' as a character
+# this is needed for graphing purposes later on
+
+new_song_T[which(is.na(new_song_T$song_released)), 2] <- 'NA'
+
+# join in the rest of the song characteristics
+new_song_T <- left_join(new_song_T, master_song_T[, -3], by = ('song_name' = 'song_name'))
+
+# clean up the environment
+rm(song_name, song_year, temp_song_year, song_year_discretized, song_unknownyear, song_generations)
+
+```
+
+```{r Delineator 17}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Show Discretized Years}
+
+# look at the distribution of the new song years after discretizing
+
+table(new_song_T$song_released)
+
+```
+
+```{r Delineator 18}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Year Histogram, echo=FALSE, fig.height=5, fig.width=9}
+
+# create a temporary dataframe for showing the histogram
+# temporary dataframe is manipulated to make NA's <- 2025
+# this makes it so that the NA's can be shown in the histogram
+# this is then covered up by manually coding in x axis labels
+
+temp_master_song_T <- master_song_T[which(
+  (master_song_T$song_released >= 1970 &           # get rid of outlier years
+  master_song_T$song_released <= 2021) |          # get rid of outlier years
+  is.na(master_song_T$song_released)), c(1, 3)]   # include the NA's
+
+temp_master_song_T[which(is.na(temp_master_song_T$song_released)), 2] <- 2030
+
+# temporarily store the histogram without plotting it
+
+temp_song_hist <- hist(temp_master_song_T[, 2], plot = FALSE, breaks = c(seq(1970, 2030, 10)))
+
+# generate the histogram plot with some customizations
+
+plot(
+     temp_song_hist,
+     xaxt = 'n',
+     xlab = 'Song Decade',
+     ylab = 'Count',
+     main = 'Histogram of Number of Songs By Year Discretized',
+     col = 'grey'
+    )
+
+# remove the x labels
+
+axis(
+     1,
+     temp_song_hist$mids,
+     labels = replicate(6, ''),
+     tick = FALSE,
+     padj= -1.5
+     )
+
+# add custom x labels
+
+text(x = 1975, y = 774, '1970s', cex = 1.2)
+text(x = 1985, y = 840, '1980s', cex = 1.2)
+text(x = 1995, y = 989, '1990s', cex = 1.2)
+text(x = 2005, y = 1090, '2000s', cex = 1.2)
+text(x = 2015, y = 2463, '2010s', cex = 1.2)
+text(x = 2025, y = 2250, 'NA', cex = 1.3)
+
+# clean up the environment
+
+rm(temp_master_song_T, temp_song_hist)
+
+```
+
+**Observations**  
+- as mentioned before, there are a lot of unknown song years, which are shown here  
+- the NA values are due to the information not being available on Wikipedia  
+- it may be possible to infer the missing song decade 
+- having the genre would be helpful for this, so the genre will be explored next
+
+\newpage
+
+##### Song Decade and Song Popularity
+
+Now that the song release years have been discretized into song decades, the
+following chart compares the average song popularity for each song decade.
+
+```{r Average Song Popularity by Song Decade, echo=FALSE, fig.height=5, fig.width=9}
+
+# join the new_song_T and song_data tables together
+
+temp_song_T <-
+  
+  left_join(
+    new_song_T,
+    song_data,
+    by = c('song_name' = 'song_name'))
+
+# query the table to be used for the subsequent plot
+
+temp_song_T <-
+
+  sqldf('
+    select
+      song_released,
+      round(avg(song_popularity), 2) as avg_song_popularity
+    from
+      temp_song_T
+    group by
+      song_released')
+
+# show a plot that answers the question
+
+ggplot(temp_song_T, aes(
+  x = song_released,
+  y = avg_song_popularity)) +
+  geom_col(width = .5) +
+  ggtitle('\n Average Song Popularity by Song Decade \n') +
+  ylab('\n Average Song Popularity \n') +
+  xlab('\n Song Decade \n') +
+
+  # some more customizations to the plot
+  theme(
+        
+        # change the font size of x axis and y axis labels to 11
+        axis.text.x = element_text(size = 9), 
+        axis.text.y = element_text(size = 9),
+        
+        # change the x axis and y axis titles to size 12, black, and boldface
+        axis.title.x = element_text(size = 10, color = "black", face = "bold"),
+        axis.title.y = element_text(size = 10, color = "black", face = "bold"),
+        
+        # get rid of the default background
+        panel.background = element_rect(fill = NA)
+        
+        )
+
+```
+
+**Observations**  
+- there is a slight positive correlation between song decade and song popularity  
+- the most popular songs are in the 2010s, the least popular songs are in the NA  
+- this makes sense because songs that do not have information on Wikipedia  
+are probably less popular
+
+<p>&nbsp;</p>
+
+##### Song Genres
+
+The song genre was one of the attributes that was retrieved from web scraping
+Wikipedia. Note: there can be multiple genres for one song.
+
+There was a wide range of genres that came out of Wikipedia,
+but these were aggregated into higher level parent genres.
+
+```{r Show Genres Sample}
+
+# here is the list of all of the parent genres
+# note that hip and hop will get put together into hiphop
+
+parent_genre_list <- c('alt', 'rock', 'metal', 'punk', 'pop', 'hip', 'hop', 'r&b', 'rap', 'jazz', 'blues', 'folk', 'country', 'elect', 'other')
+
+```
+
+```{r Reconcile Tables Function, include = FALSE}
+
+# reconcile tables function
+# sets up the table column names to be aligned dynamically for row binding
+
+reconcile_tables <- function(table1, table2) {
+  
+  colnameslist <- unique(c(colnames(table1), colnames(table2))) # unique list of all columns from both tables
+  
+  table1rows <- nrow(table1) # num of rows in table 1
+  table2rows <- nrow(table2) # num of rows in table 2
+  
+  table1addcols <- colnames(table2) [which( ! colnames(table2) %in% colnames(table1))] # cols in table 2 and not in table 1
+  table2addcols <- colnames(table1) [which( ! colnames(table1) %in% colnames(table2))] # cols in table 1 and not in table 2
+  
+  table1pad <- as.data.frame(matrix(nrow = table1rows, ncol = length(table1addcols))) # create padded data structure table 1
+  table2pad <- as.data.frame(matrix(nrow = table2rows, ncol = length(table2addcols))) # create padded data structure table 1
+  
+  colnames(table1pad) <- table1addcols # change the col names accordingly table1
+  colnames(table2pad) <- table2addcols # change the col names accordingly table1
+  
+  newtable1 <- cbind(table1, table1pad) # combine the original table 1 and the padded table 1
+  newtable2 <- cbind(table2, table2pad) # combine the original table 2 and the padded table 2
+  
+  newtable1 <- newtable1[, colnameslist] # reorder the columns accordingly
+  newtable2 <- newtable2[, colnameslist] # reorder the columns accordingly
+  
+  return(rbind(newtable1, newtable2)) # return the combined tables
+
+}
+
+```
+
+```{r Unpack Genres, include = FALSE}
+
+# split the data into two dataframes
+# one has the known genres one does not
+
+song_known_genres <- new_song_T[which(! is.na(new_song_T$song_genre)), c(1, 4)]
+
+# create a vector of each of the genre counts
+# these are all of the genres that are present in the data
+# the other genre is anything that is out of the other genres
+
+parent_genre_list <- c('alt', 'rock', 'metal', 'punk', 'pop', 'hip', 'hop', 'r&b',
+                       'rap', 'jazz', 'blues', 'folk', 'country', 'elect', 'other')
+
+# create an empty variable for each of the genres
+# these will be appended to throughout the for loop
+
+altcount     <- c();   rockcount    <- c();   metalcount     <- c()
+punkcount    <- c();   popcount     <- c();   hiphopcount    <- c()
+rbcount      <- c();   rapcount     <- c();   jazzcount      <- c()
+bluescount   <- c();   folkcount    <- c();   countrycount   <- c()
+electcount   <- c();   othercount   <- c()
+
+# iterate through each of the songs and corresponding genres
+# if it contains the genre it will be given a 1 for true
+# if does not contain the genre it wil be given a 0 for false
+
+for (nestedgenre in song_known_genres$song_genre) {
+  
+  alttest      <- as.numeric(grepl('alt', nestedgenre)); altcount <- c(altcount, alttest)
+  rocktest     <- as.numeric(grepl('rock', nestedgenre)); rockcount <- c(rockcount, rocktest)
+  metaltest    <- as.numeric(grepl('metal', nestedgenre)); metalcount <- c(metalcount, metaltest)
+  punktest     <- as.numeric(grepl('punk', nestedgenre)); punkcount <- c(punkcount, punktest)
+  poptest      <- as.numeric(grepl('pop', nestedgenre)); popcount <- c(popcount, poptest)
+  rbtest       <- as.numeric(grepl('r&b', nestedgenre)); rbcount <- c(rbcount, rbtest)
+  raptest      <- as.numeric(grepl('rap', nestedgenre)); rapcount <- c(rapcount, raptest)
+  jazztest     <- as.numeric(grepl('jazz', nestedgenre)); jazzcount <- c(jazzcount, jazztest)
+  bluestest    <- as.numeric(grepl('blues', nestedgenre)); bluescount <- c(bluescount, bluestest)
+  folktest     <- as.numeric(grepl('folk', nestedgenre)); folkcount <- c(folkcount, folktest)
+  countrytest  <- as.numeric(grepl('country', nestedgenre)); countrycount <- c(countrycount, countrytest)
+  electtest    <- as.numeric(grepl('elect', nestedgenre)); electcount <- c(electcount, electtest)
+  othertest    <- as.numeric(grepl('other', nestedgenre)); othercount <- c(othercount, othertest)
+  hiphoptest   <- as.numeric(grepl('hip', nestedgenre) | grepl('hop', nestedgenre)); hiphopcount <- c(hiphopcount, hiphoptest)
+
+}
+
+# join these vectors into the main dataframe
+
+song_known_genres$alt      <- altcount;     song_known_genres$rock     <- rockcount;   song_known_genres$metal    <- metalcount
+song_known_genres$punk     <- punkcount;    song_known_genres$pop      <- popcount;    song_known_genres$hiphop   <- hiphopcount
+song_known_genres$rb       <- rbcount;      song_known_genres$rap      <- rapcount;    song_known_genres$jazz     <- jazzcount
+song_known_genres$blues    <- bluescount;   song_known_genres$folk     <- folkcount;   song_known_genres$country  <- countrycount
+song_known_genres$elect    <- electcount;   song_known_genres$other    <- othercount
+
+# create a dataframe for the genres that are unknown
+
+song_unknown_genres <- new_song_T[which(is.na(new_song_T$song_genre)), c(1, 4)]
+
+# join together the two data frames
+# NAs for each of the genres for the unkown genres
+
+song_temp_genres <- reconcile_tables(song_known_genres, song_unknown_genres)
+
+# change the NA into its own column
+
+song_temp_genres$Unknown <- ifelse(is.na(song_temp_genres$song_genre), 1, 0)
+
+#correct any NA's to zeros
+
+for (column in colnames(song_temp_genres[,2:(dim(song_temp_genres)[2])])) {
+song_temp_genres[which(is.na(song_temp_genres[,which(colnames(song_temp_genres)==column)])),
+which(colnames(song_temp_genres)==column)] <- 0}
+
+# clean up the transient variables from the environment
+
+rm(alttest, rocktest, metaltest, punktest, poptest, hiphoptest, rbtest, raptest,
+   jazztest, bluestest, folktest, countrytest, electtest, othertest, nestedgenre,
+   altcount, rockcount, metalcount, punkcount, popcount, hiphopcount, rbcount,
+   rapcount, jazzcount, bluescount, folkcount, countrycount, electcount, othercount,
+   parent_genre_list, column)
+
+```
+
+```{r Prepare Song Genres Plot, include = FALSE}
+
+# join in the song generation with the song genres dataframe
+
+song_temp_genres <- left_join(song_temp_genres, new_song_T[, c(1, 2)], by = c('song_name' = 'song_name'))
+
+# create a temporary variable for the distribution of genres by song generation
+
+temp_analysis <- 
+  
+sqldf('
+select
+  song_released,
+  sum(alt) as alt,
+  sum(rock) as rock,
+  sum(metal) as metal,
+  sum(punk) as punk,
+  sum(pop) as pop,
+  sum(hiphop) as hiphop,
+  sum(rb) as rb,
+  sum(rap) as rap,
+  sum(jazz) as jazz,
+  sum(blues) as blues,
+  sum(folk) as folk,
+  sum(elect) as elect,
+  sum(other) as other,
+  sum(unknown) as unknown
+from song_temp_genres
+group by song_released')
+
+# melt the data frame for plotting a stacked bar chart
+
+temp_analysis <- melt(temp_analysis, variable.name = 'Genre', value.name = 'Count')
+
+```
+
+Below chart shows the distribution of the song genres and how many of them
+there are for each song release year.
+
+\newpage
+
+```{r Plot Song Genres, echo=FALSE, fig.height=5, fig.width=10}
+
+# what is the distribution of the song genres - by generation?
+# keep in mind a song can have more than one genre
+
+ggplot(temp_analysis, aes(reorder(Genre, -Count), Count)) +
+  geom_col(position = 'stack', aes(fill = song_released), colour = 'black') +
+  ggtitle('\n Distribution of Genres by Song Generation\n ') +
+  ylab('\n Count \n') + xlab('\n Song Genre \n') +
+  scale_fill_grey(start = 0, end = .9) +
+
+  # some more customizations to the plot
+  theme(
+        
+        # change the font size of x axis and y axis labels to 11
+        axis.text.x = element_text(size = 9), 
+        axis.text.y = element_text(size = 9),
+        
+        # change the x axis and y axis titles to size 12, black, and boldface
+        axis.title.x = element_text(size = 10, color = "black", face = "bold"),
+        axis.title.y = element_text(size = 10, color = "black", face = "bold"),
+        
+        # get rid of the default background
+        panel.background = element_rect(fill = NA)
+        
+        )
+
+```
+
+```{r Song Genres Distribution Table, include = FALSE}
+
+# create a lookup table for the count of all songs in each bin
+
+song_count_lookup <- sqldf('
+
+  select
+    song_released,
+    count(song_released) as AllCount
+  from
+    song_temp_genres
+  group by
+    song_released'
+  
+)
+
+# join in this information to the temporary analysis table
+
+temp_analysis <- left_join(temp_analysis, song_count_lookup, by = c('song_released' = 'song_released'))
+
+# create a new column and the percentage total
+
+temp_analysis$pctTotal <- paste0(round((temp_analysis$Count / temp_analysis$AllCount) * 100, 0), '%')
+
+# restructure the dataframe into a more readable format
+
+temp_analysis <- t(dcast(temp_analysis[, c(1, 2, 5)], song_released ~ Genre))
+
+# change the column names accordingly
+# due to the transpose operation the column names were placed in row 1
+
+colnames(temp_analysis)   <- temp_analysis[1, ]    # use first row as headers
+temp_analysis             <- temp_analysis[-1, ]   # get rid of the first row
+
+```
+
+Below table shows the percentage total of the song genres for each song year, 
+note that the percentages will not add up to 100 due to being multiple
+genres for some songs.
+
+```{r Display Song Genres Distribution Table, echo = FALSE}
+
+# print out a title seperated by 2 lines and then the table
+
+kable(temp_analysis)
+
+# clean up the environment
+
+rm(song_count_lookup, temp_analysis)
+
+```
+
+<p>&nbsp;</p>
+
+**Observations**  
+- there are some noticeable correlations with genre and generation  
+- for example not many hiphop or electro songs in earlier generations  
+- there are more folk and rock songs in earlier gens  
+- pop, rock, hiphop are some of the most frequent genres as would be expected
+because these genres are mostly newer generation  
+
+##### Song Genre and Song Popularity
+
+The following series of charts displays the average song popularity for
+each genre broken down by song decade.
+
+```{r Song Genre and Song Popularity Charts, echo=FALSE, fig.height=12, fig.width=10}
+
+# query the table that has the information
+temp_song_T <- left_join(
+                left_join(
+                  song_temp_genres,
+                  song_data,
+                  by = c('song_name' = 'song_name')),
+                new_song_T[, c(1, 3)],
+                by = c('song_name' = 'song_name'))
+
+# start with an empty dataframe, this will be appended to
+temp_genre_T <- data.frame()
+
+# create a character vector of summary statistics for each genre
+# these will be placed in the label strip of each plot
+# create an empty variable for the summary statistics text
+genre_summary_statitics_text <- c()
+
+# iterate through columns 3-17 in temp_song_T
+# these are the columns for each of the genres
+for (genreColNumber in seq(3, 17, 1)) {
+  
+  # create a subset table with the necessary columns
+  temp_query_T <-
+    temp_song_T[which(                          # is a subset table of the temp_song_T table
+      temp_song_T[, genreColNumber] == 1),      # if the value = 1 then the song is that genre
+      c(genreColNumber, 18, 19)]                # three columns, genre, song decade, song popularity
+  
+  # store the genre in all caps, the min, the mean, and the max
+  # these variables will be used in a summary statistics character vector
+  temp_genre_name        <- colnames(temp_song_T) [genreColNumber]
+  temp_genre_pop_min     <- round(min(temp_query_T$song_popularity), 0)
+  temp_genre_pop_mean    <- round(mean(temp_query_T$song_popularity), 0)
+  temp_genre_pop_max     <- round(max(temp_query_T$song_popularity), 0)
+  
+  # summary statistics character vector for the current genre
+  summary_statistics <- paste(       ' | ',
+    str_to_upper(temp_genre_name),   ' | ',
+    'min =', temp_genre_pop_min,     ' | ',
+    'mean =', temp_genre_pop_mean,   ' | ',
+    'max =', temp_genre_pop_max,     ' | ')
+    
+  # append the summary statistics character vector to the main
+  genre_summary_statitics_text <- c(genre_summary_statitics_text, summary_statistics)
+
+  # aggregate by song decade and avg song popularity
+  temp_query_T <-
+    sqldf('
+      select
+        song_released,
+        round(avg(song_popularity), 2) as avg_song_popularity
+      from
+        temp_query_T
+      group by
+        song_released')
+  
+  # add another column for the song genre
+  temp_query_T$genre <- colnames(temp_song_T) [genreColNumber]
+  
+  # append to the main dataframe
+  temp_genre_T <- rbind(temp_genre_T, temp_query_T)
+  
+}
+
+# create a character vector that can be passed as
+# an argument in the facet_wrap function
+genre_plot_titles <- c(
+  
+  alt       = genre_summary_statitics_text[1],
+  rock      = genre_summary_statitics_text[2],
+  metal     = genre_summary_statitics_text[3],
+  punk      = genre_summary_statitics_text[4],
+  pop       = genre_summary_statitics_text[5],
+  hiphop    = genre_summary_statitics_text[6],
+  rb        = genre_summary_statitics_text[7],
+  rap       = genre_summary_statitics_text[8],
+  jazz      = genre_summary_statitics_text[9],
+  blues     = genre_summary_statitics_text[10], 
+  folk      = genre_summary_statitics_text[11],
+  country   = genre_summary_statitics_text[12],
+  elect     = genre_summary_statitics_text[13], 
+  other     = genre_summary_statitics_text[14], 
+  Unknown   = genre_summary_statitics_text[15]
+  
+)
+  
+  # plot the avg song popularity by song decade
+  ggplot(temp_genre_T,
+    
+    # song decade on the x axis
+    # avg song popularity on the y axis
+    aes(
+      x = song_released,
+      y = avg_song_popularity,
+      fill = song_released)) +
+    
+    # reduce the width of the bars for looks
+    geom_col(
+      width = 0.5) +
+    
+    # set the limits between 0 and 100
+    # song popularity is always between 0 and 100
+    # every visual should display the same scale
+    scale_y_continuous(
+      limits=c(0,75)) +
+    
+    scale_fill_manual(
+      values = c("dodgerblue4", "darkorange1", "gray76", "lightblue3", "darkorange3", 'gray47')) +
+    
+    # add title, x axis label, y axis label
+    ggtitle('\n Avg Song Popularity by Genre and by Song Decade \n') +
+    xlab('\n Song Decade \n') +
+    ylab('\n Avg Song Popularity \n') +
+    
+    # adjust the legend
+    theme(legend.position=c(.75, 1.06),
+          legend.direction="horizontal") +
+    
+    # use facet wrap to partition by song genre
+    # set layout to 5 rows by 3 columns
+    facet_wrap(
+      ~ genre,
+      nrow = 5,
+      ncol = 3, 
+      labeller = labeller(
+        genre = genre_plot_titles)
+    )
+  
+# clean up the environment
+rm(genre_plot_titles, genre_summary_statitics_text, genreColNumber, summary_statistics, temp_genre_T,
+   temp_genre_name, temp_genre_pop_max, temp_genre_pop_min, temp_genre_pop_mean, temp_query_T)
+
+```
+
+**Observations**  
+- rap is most popular genre (52 avg) and jazz is the least popular (38 avg)  
+- some genres have decreased in popularity over time, such as alt and metal  
+- some genres have increased in popularity over time, such as country and pop
+
+##### Correlation of Song Attributes
+
+The song attributes were included as part of the original Kaggle datasets.
+These will be explored next.
+
+```{r Delineator 19}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Attribute Correlation Matrix, fig.height=3, fig.width=3}
+
+# transform the song attributes with min max
+temp_song_T_transformed <- min_max_transform(temp_song_T, seq(19, 32, 1))
+
+# truncate the column names
+colnames(temp_song_T_transformed) <- substr(colnames(temp_song_T_transformed), 1, 4)
+
+# fix some of the column names manually
+colnames(temp_song_T_transformed) [c(19, 20, 28, 32)] <- c('pop', 'dur', 'mode', 'vlnc')
+
+# compute the correlation matrix
+temp_cor <- round(cor(temp_song_T_transformed[, 19:32], temp_song_T_transformed[, 19:32]), 2)
+
+# plot the correlation matrix
+corrplot(temp_cor,
+         method = 'ellipse',
+         outline = TRUE)
+
+```
+
+\newpage
+
+**Observations**  
+- there are not any very strong correlations with song popularity  
+- song acousticness has a strong negative correlation with song energy  
+- song energy, loudness, and audio valence have a strong positive correlation
+
+```{r Delineator 30}
+
+#---------------------------------------------------------------------------#
+
+```
+
+##### Song Attribute Importance
+
+Using the boruta package, the importance of each song attribute for predicting
+song popularity will be tested.
+
+```{r Song Attribute Boruta, include = FALSE}
+
+# take a sample to reduce the amount of data
+set.seed(1000)
+temp.song.T.transformed.sampled <- temp_song_T_transformed[
+  sample(seq(1, nrow(temp_song_T_transformed), 1), 2500, replace = FALSE), ]
+
+# use boruta package to determine significance
+set.seed(1000)
+song.boruta <- Boruta(pop ~ .,
+                      data = temp.song.T.transformed.sampled[, 19:32],
+                      doTrace = 2,
+                      pValue = 0.9,
+                      maxRuns = 15)
+
+```
+
+```{r Song Attribute Boruta Results, echo = FALSE}
+
+# print out the results of the boruta test
+print(song.boruta)
+
+# clean up the environment
+rm(song.boruta, temp_cor, temp.song.T.transformed.sampled)
+
+```
+
+```{r Song Attribute Feature Selection}
+
+# remove the variables that are not significant
+temp_song_T_transformed <- temp_song_T_transformed[, which(
+  ! colnames(temp_song_T_transformed) %in% c('key', 'live', 'mode', 'time'))]
+
+```
+
+**Observations**  
+- key and audio mode are not significant for predicting song popularity  
+- liveness and time signature are tentative for predicting song popularity  
+- based on the results, all four of these columns will be dropped
+
+```{r Delineator 20}
+
+#---------------------------------------------------------------------------#
+
+```
+
+##### Exploration of Song Attributes
+
+Each remaining song attribute will be explored in more detail along with
+any data preprocessing that takes place.
+
+```{r Song Single Question}
+
+# what effect does a song being a single have on song popularity?
+
+```
+
+```{r Song Single Answer, echo = FALSE, fig.height=2.5, fig.width=6}
+
+# change the value of song single that is NA to 0
+temp_song_T[which(
+  is.na(temp_song_T$song_single)),
+  which(colnames(temp_song_T) == 'song_single')] <- 0
+
+# query the table to answer the question
+temp_query <- 
+
+  sqldf('
+    select
+      song_released as song_rel,
+      song_single as single,
+      avg(song_popularity) as pop
+    from
+      temp_song_T
+    group by
+      song_released,
+      song_single'
+  )
+
+# show a chart that answers the question
+ggplot() +
+  geom_bar(
+    data = temp_query,
+    aes(
+      x = song_rel,
+      y = pop,
+      fill = as.factor(single)),
+    position = "dodge",
+    stat = "identity",
+    width = 0.5
+    ) +
+  ggtitle('\n Song Single and Song Popularity \n') +
+  ylab('\n Song Popularity \n') +
+  xlab('\n Song Decade \n') + 
+  
+  # adjust the legend
+  theme(legend.position=c(.75, 1.13),
+        legend.direction="horizontal") +
+  
+  guides(fill=guide_legend("Single?"))
+
+```
+
+```{r Delineator 21}
+
+#---------------------------------------------------------------------------#
+
+```
+
+**Observations**  
+- there is a positive correlation between song single and song popularity  
+- this is not surprising because singles are usually more popular songs  
+- interestingly, there is little to no difference seen in the NA group
+
+```{r Advanced Box Plot Function, echo=FALSE}
+
+# create a function that can be used for generating the boxplot
+advanced_boxplot <- function(song_attr_values,
+                             song_attr_name,
+                             song_year_values,
+                             ylimhigh,
+                             xheadercenter,
+                             ablinehigh,
+                             yupperheader) {
+  
+  # create a new dataframe with the two columns provided
+  temp_dataframe <- data.frame(cbind(
+    'SongAttr' = song_attr_values,
+    'SongYear' = song_year_values))
+
+  # create an empty variable for the summary text
+  # this will be used as a header in the box plot
+  boxplot_main <- c()
+  
+  # iterate through each box plot part in the summary function
+  # i.e. min, Q1, median, mean Q3, max, etc.
+  for (boxplot_part in names(summary(song_attr_values)) [1:6]) {
+    
+    # capture the numerical value of the current box plot part
+    boxplot_value <- summary(song_attr_values) [boxplot_part]
+    
+    # concatenate the name and the numerical value seperated by a colon
+    boxplot_full <- paste0(boxplot_part, ': ', round(boxplot_value, 1))
+    
+    # append the concatenated text to the main variable
+    boxplot_main <- paste(boxplot_main, boxplot_full, '  |  ')
+  
+  }
+  
+  # create the box plot
+  plot <- boxplot(
+    as.numeric(temp_dataframe$SongAttr) ~ temp_dataframe$SongYear,
+    main = paste('Song', song_attr_name, 'by Song Decade'),
+    ylim = c((as.numeric(min(temp_dataframe$SongAttr))*1.1), ylimhigh),
+    xlab = '',
+    ylab = paste('Song', song_attr_name),
+    las = 2)
+  
+  # add a solid horizontal line for the upper header
+  abline(h = ablinehigh)
+  
+  # add a dashed horizontal line for the overall median
+  abline(h = (summary(temp_dataframe$SongAttr) ['Median']), lty = 2)
+  
+  # add the text for the upper header
+  text(
+    x = xheadercenter,
+    y = yupperheader,
+    paste(boxplot_main),
+    cex = .9
+  )
+
+  return(plot)
+
+}
+
+```
+
+```{r Delineator 22}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Popularity Analysis, echo=FALSE, fig.height=5, fig.width=14}
+
+par(mfrow = c(1, 2))
+
+popularityplot <- advanced_boxplot(
+                 song_attr_values = temp_song_T_transformed$pop.1,
+                 song_attr_name = 'Popularity',
+                 song_year_values = temp_song_T_transformed$song.2,
+                 ylimhigh = 1.2,
+                 xheadercenter = 3.5,
+                 ablinehigh = 1.05,
+                 yupperheader = 1.15)
+
+hist(temp_song_T_transformed$pop.1,
+     breaks = 50,
+     main = 'Song Popularity Histogram',
+     xlab = 'Song Popularity')
+
+rm(popularityplot)
+
+```
+
+**Observations**  
+- the distribution of song popularity is normal but slightly left skewed  
+- this means that there are more less popular songs than there are popular songs  
+- the majority of songs fall within a song popularity of 0.4 to 0.6  
+- there is an unusual number of very unpopular songs in the 1990s and 2000s  
+
+```{r Delineator 100}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Retrieve Song Popularity Outliers for 1990s, echo = FALSE}
+
+x.Q1 <- summary(temp_song_T_transformed[which(temp_song_T_transformed$song.2 == '1990s'),
+                            which(colnames(temp_song_T_transformed) == 'pop.1')]) [2] %>% as.numeric()
+
+x.Q3 <- summary(temp_song_T_transformed[which(temp_song_T_transformed$song.2 == '1990s'),
+                            which(colnames(temp_song_T_transformed) == 'pop.1')]) [5] %>% as.numeric()
+
+x.IQR <- x.Q3 - x.Q1
+
+x.Outliers <- temp_song_T_transformed[which(temp_song_T_transformed$pop.1 < x.Q1 - (1.5 * x.IQR) &
+                                            temp_song_T_transformed$song.2 == '1990s'), ]
+
+x.Outliers <- left_join(x.Outliers, song_info, by = c('song' = 'song_name')) %>%
+              left_join(master_song_T[, c(1, 2, 3, 5)], by = c('song' = 'song_name'))
+
+```
+
+```{r Show Song Popularity Outliers for 1990s}
+
+# a sample of some of the outliers from 1990s
+
+kable(head(x.Outliers[, c(1, 30, 31, 2, 33, 34)], 5))
+
+```
+
+```{r Delineator 101}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Retrieve Song Popularity Outliers for 2000s, echo = FALSE}
+
+x.Q1 <- summary(temp_song_T_transformed[which(temp_song_T_transformed$song.2 == '2000s'),
+                            which(colnames(temp_song_T_transformed) == 'pop.1')]) [2] %>% as.numeric()
+
+x.Q3 <- summary(temp_song_T_transformed[which(temp_song_T_transformed$song.2 == '2000s'),
+                            which(colnames(temp_song_T_transformed) == 'pop.1')]) [5] %>% as.numeric()
+
+x.IQR <- x.Q3 - x.Q1
+
+x.Outliers <- temp_song_T_transformed[which(temp_song_T_transformed$pop.1 < x.Q1 - (1.5 * x.IQR) &
+                                            temp_song_T_transformed$song.2 == '2000s'), ]
+
+x.Outliers <- left_join(x.Outliers, song_info, by = c('song' = 'song_name')) %>%
+              left_join(master_song_T[, c(1, 2, 3, 5)], by = c('song' = 'song_name'))
+
+```
+
+```{r Show Song Popularity Outliers for 2000s}
+
+# a sample of some of the outliers from 2000s
+
+kable(head(x.Outliers[, c(1, 30, 31, 2, 33, 34)], 5))
+
+```
+
+```{r Delineator 102}
+
+#---------------------------------------------------------------------------#
+
+```
+
+**Observations**  
+- some of these songs should not have such low song popularity  
+- for example, "I’ll Be There For You/You’re All I Need To Get By" was a
+single by Method Man and sold over 800,000 copies.  
+- these songs will be removed due to the potential adverse effect
+that they could have on the prediction models later on.
+
+```{r Delineator 103}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Remove Outlier Songs Song Popularity, echo = FALSE}
+
+# create a copy of the dataframe
+# this will stay with none of the outliers removed
+# might come in handy later for analysis purposes
+x.copy <- temp_song_T_transformed
+
+# cycle through twice
+for (x.cycle in seq(1, 2, 1)) {
+  
+# iterate through each song decade
+for (x.songdecade in c('1970s', '1980s', '1990s', '2000s', '2010s', 'NA')) {
+
+# store first and third quartiles
+x.Q1 <- as.numeric(summary(temp_song_T_transformed[which(temp_song_T_transformed$song.2 == x.songdecade), 19]) [2])
+x.Q3 <- as.numeric(summary(temp_song_T_transformed[which(temp_song_T_transformed$song.2 == x.songdecade), 19]) [5])
+
+# store upper and lower outliers
+x.LowerOutlier <- x.Q1 - (1.5 * (x.Q3 - x.Q1))
+x.UpperOutlier <- x.Q3 + (1.5 * (x.Q3 - x.Q1))
+
+# remove the outliers
+temp_song_T_transformed <- temp_song_T_transformed[which(
+  
+  # is a lower outlier for the current decade
+  ! (temp_song_T_transformed$song.2 == x.songdecade &
+  temp_song_T_transformed$pop.1 < x.LowerOutlier) &
+    
+  # or is an upper outlier for the current decade
+  ! (temp_song_T_transformed$song.2 == x.songdecade &
+  temp_song_T_transformed$pop.1  > x.UpperOutlier)), ]
+
+}
+  
+}
+
+# print how many were removed
+cat('Number of Songs Removed:',
+    nrow(x.copy) - nrow(temp_song_T_transformed))
+
+```
+
+```{r Cleaned Song Popularity Analysis, echo=FALSE, fig.height=5, fig.width=14}
+
+par(mfrow = c(1, 2))
+
+popularityplot <- advanced_boxplot(
+                 song_attr_values = temp_song_T_transformed$pop.1,
+                 song_attr_name = 'Popularity',
+                 song_year_values = temp_song_T_transformed$song.2,
+                 ylimhigh = 1.2,
+                 xheadercenter = 3.5,
+                 ablinehigh = 1.05,
+                 yupperheader = 1.15)
+
+hist(temp_song_T_transformed$pop.1,
+     breaks = 50,
+     main = 'Song Popularity Histogram',
+     xlab = 'Song Popularity')
+
+rm(popularityplot)
+
+```
+
+**Observations**  
+- the distribution of song popularity after removing outliers is more normal  
+- there are still some strange pockets of low popularity but will leave for now
+
+```{r Delineator 23}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Duration Analysis, echo=FALSE, fig.height=5, fig.width=14}
+
+par(mfrow = c(1, 2))
+
+durationplot <- advanced_boxplot(
+                 song_attr_values = temp_song_T_transformed$dur,
+                 song_attr_name = 'Duration',
+                 song_year_values = temp_song_T_transformed$song.2,
+                 ylimhigh = 1.2,
+                 xheadercenter = 3.5,
+                 ablinehigh = 1.05,
+                 yupperheader = 1.15)
+
+hist(temp_song_T_transformed$dur,
+     breaks = 50,
+     main = 'Song Duration Histogram',
+     xlab = 'Song Duration')
+
+rm(durationplot)
+
+```
+
+```{r Top 10 Shortest Songs}
+
+# a sample of some of the shortest songs
+kable(
+  head(
+    sqldf('
+      select
+        song_name,
+        (sum(song_duration_ms) / 1000) as song_duration_seconds
+      from
+        temp_song_T
+      group by
+        song_name
+      order by
+        song_duration_ms asc'
+    )
+  )
+)
+
+```
+
+```{r Top 10 Longest Songs}
+
+# a sample of some of the longest songs
+kable(
+  head(
+    sqldf('
+      select
+        song_name,
+        (sum(song_duration_ms) / 1000) as song_duration_seconds
+      from
+        temp_song_T
+      group by
+        song_name
+      order by
+        song_duration_ms desc'
+    )
+  )
+)
+
+```
+
+```{r Delineator 104}
+
+#---------------------------------------------------------------------------#
+
+```
+
+**Observations**  
+- there is little difference in avg song duration between decades  
+- there are some outlier songs in terms of their song duration  
+- some are either intros, outros, transitions, or not real songs  
+- or they could just be really short or really long songs  
+- these songs can be removed since the main focus is hit songs
+
+```{r Delineator 105}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Remove Outlier Songs Song Duration, echo = FALSE}
+
+# store first and third quartiles
+Q1 <- as.numeric(summary(temp_song_T_transformed$dur) [2])
+Q3 <- as.numeric(summary(temp_song_T_transformed$dur) [5])
+
+# store upper and lower outliers
+LowerOutlier <- Q1 - (1.5 * (Q3 - Q1))
+UpperOutlier <- Q3 + (1.5 * (Q3 - Q1))
+
+# remove the outliers
+temp_song_T_transformed <- temp_song_T_transformed[which(
+  temp_song_T_transformed$dur > LowerOutlier &
+  temp_song_T_transformed$dur < UpperOutlier), ]
+
+# print how many were removed
+cat('Number of Songs Removed:',
+    nrow(temp_song_T) - nrow(temp_song_T_transformed))
+
+# clean up the environment
+rm(Q1, Q3, LowerOutlier, UpperOutlier)
+
+```
+
+```{r Cleaned Song Duration Analysis, echo = FALSE, fig.height=5, fig.width=14}
+
+# reapply the min max transformation
+temp_song_T_transformed <- min_max_transform(temp_song_T_transformed, 20)
+
+par(mfrow = c(1, 2))
+
+durationplot <- advanced_boxplot(
+                 song_attr_values = temp_song_T_transformed$dur,
+                 song_attr_name = 'Duration',
+                 song_year_values = temp_song_T_transformed$song.2,
+                 ylimhigh = 1.2,
+                 xheadercenter = 3.5,
+                 ablinehigh = 1.05,
+                 yupperheader = 1.15)
+
+hist(temp_song_T_transformed$dur,
+     breaks = 50,
+     main = 'Song Duration Histogram',
+     xlab = 'Song Duration')
+
+rm(durationplot)
+
+```
+
+**Observations**  
+- the distribution of song duration after removing outliers is normal  
+- the new range of song duration is between about 1.5 min to 5.5 min  
+- the majority of songs fall tend to be around 3 to 4 minutes  
+
+```{r Delineator 24}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Acousticness Analysis, echo=FALSE, fig.height=5, fig.width=14}
+
+par(mfrow = c(1, 2))
+
+acouplot <-      advanced_boxplot(
+                 song_attr_values = temp_song_T_transformed$acou,
+                 song_attr_name = 'Acousticness',
+                 song_year_values = temp_song_T_transformed$song.2,
+                 ylimhigh = 1.2,
+                 xheadercenter = 3.5,
+                 ablinehigh = 1,
+                 yupperheader = 1.1)
+
+hist(temp_song_T_transformed$acou,
+     breaks = 50,
+     main = 'Song Acousticness Histogram',
+     xlab = 'Song Acousticness')
+
+rm(acouplot)
+
+```
+
+**Observations**  
+- the distribution of song acousticness is skewed  
+- this could adversely affect song popularity prediction later on  
+
+```{r Delineator 107}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Acousticness Skewness, echo=FALSE, fig.height=3, fig.width=3}
+
+# show the actual counts of the song acousticness
+as.data.frame(table(round(temp_song_T_transformed$acou, 1)))
+
+```
+
+**Observations**  
+- the song acousticness does not seem to directly affect song popularity  
+- to simplify this attribute, a song can have 3 levels of acousticness  
+- no acousticness (0), some acousticness (0.5), acousticness (1.0)
+
+```{r Clean Song Acousticness, include = FALSE}
+
+# transform the song acousticness into three bins
+temp_song_T_transformed$acou <-
+  ifelse(temp_song_T_transformed$acou < 0.25, 0,
+    ifelse(temp_song_T_transformed$acou >= 0.25 &
+           temp_song_T_transformed$acou < 0.75, 0.5,
+      ifelse(temp_song_T_transformed$acou >= 0.75, 1, 0)))
+
+```
+
+```{r Cleaned Song Acousticness Analysis}
+
+# the frequency distribution after transformation
+table(temp_song_T_transformed$acou)
+
+```
+
+```{r Delineator 25}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Danceability Analysis, echo=FALSE, fig.height=5, fig.width=14}
+
+par(mfrow = c(1, 2))
+
+danceplot <- advanced_boxplot(
+                 song_attr_values = temp_song_T_transformed$danc,
+                 song_attr_name = 'Danceability',
+                 song_year_values = temp_song_T_transformed$song.2,
+                 ylimhigh = 1.2,
+                 xheadercenter = 3.5,
+                 ablinehigh = 1,
+                 yupperheader = 1.1)
+
+hist(temp_song_T_transformed$danc,
+     breaks = 50,
+     main = 'Song Danceability Histogram',
+     xlab = 'Song Danceability')
+
+rm(danceplot)
+
+```
+
+**Observations**  
+- the danceability attribute has a normal distribution  
+- no preprocessing is necessary at this time
+
+```{r Delineator 26}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Energy Analysis, echo=FALSE, fig.height=5, fig.width=14}
+
+par(mfrow = c(1, 2))
+
+energyplot <- advanced_boxplot(
+                 song_attr_values = temp_song_T_transformed$ener,
+                 song_attr_name = 'Energy',
+                 song_year_values = temp_song_T_transformed$song.2,
+                 ylimhigh = 1.2,
+                 xheadercenter = 3.5,
+                 ablinehigh = 1,
+                 yupperheader = 1.1)
+
+hist(temp_song_T_transformed$ener,
+     breaks = 50,
+     main = 'Song Energy Histogram',
+     xlab = 'Song Energy')
+
+rm(energyplot)
+
+```
+
+**Observations**  
+- the danceability attribute has a skewed distribution  
+- newer generation songs tend to have higher energy  
+- no preprocessing is necessary at this time
+
+```{r Delineator 27}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Instrumentalness Analysis, echo=FALSE, fig.height=5, fig.width=14}
+
+par(mfrow = c(1, 2))
+
+instrplot <-     advanced_boxplot(
+                 song_attr_values = temp_song_T_transformed$inst,
+                 song_attr_name = 'Instrumentalness',
+                 song_year_values = temp_song_T_transformed$song.2,
+                 ylimhigh = 1.2,
+                 xheadercenter = 3.5,
+                 ablinehigh = 1,
+                 yupperheader = 1.1)
+
+hist(temp_song_T_transformed$inst,
+     breaks = 50,
+     main = 'Song Instrumentalness Histogram',
+     xlab = 'Song Instrumentalness')
+
+rm(instrplot)
+
+```
+
+**Observations**  
+- the song instrumentalness attribute is highly skewed  
+- the large majority of songs do not have any instrumentalness  
+- the same transformation from song acousticness will be applied
+
+```{r Delineator 108}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Instrumentalness Skewness, echo = FALSE}
+
+# show the actual counts of the song acousticness
+as.data.frame(table(round(temp_song_T_transformed$inst, 1)))
+
+```
+
+```{r Clean Song Instrumentalness, include = FALSE}
+
+# transform the song instrumentalness into three bins
+temp_song_T_transformed$inst <-
+  ifelse(temp_song_T_transformed$inst < 0.25, 0,
+    ifelse(temp_song_T_transformed$inst >= 0.25 &
+           temp_song_T_transformed$inst < 0.75, 0.5,
+      ifelse(temp_song_T_transformed$inst >= 0.75, 1, 0)))
+
+```
+
+```{r Cleaned Song Instrumentalness Analysis}
+
+# the frequency distribution after transformation
+table(temp_song_T_transformed$inst)
+
+```
+
+```{r Delineator 110}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Loudness Analysis, echo=FALSE, fig.height=5, fig.width=14}
+
+par(mfrow = c(1, 2))
+
+loudplot <-      advanced_boxplot(
+                 song_attr_values = temp_song_T_transformed$loud,
+                 song_attr_name = 'Loudness',
+                 song_year_values = temp_song_T_transformed$song.2,
+                 ylimhigh = 1.2,
+                 xheadercenter = 3.5,
+                 ablinehigh = 1,
+                 yupperheader = 1.1)
+
+hist(temp_song_T_transformed$loud,
+     breaks = 50,
+     main = 'Song Loudness Histogram',
+     xlab = 'Song Loudness')
+
+rm(loudplot)
+
+```
+
+**Observations**  
+- the loudness attribute has a skewed distribution  
+- newer generation songs tend to have higher loudness  
+- no preprocessing is necessary at this time
+
+```{r Delineator 29}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Speechiness Analysis, echo=FALSE, fig.height=5, fig.width=14}
+
+par(mfrow = c(1, 2))
+
+speechplot <- advanced_boxplot(
+                 song_attr_values = temp_song_T_transformed$spee,
+                 song_attr_name = 'Speechiness',
+                 song_year_values = temp_song_T_transformed$song.2,
+                 ylimhigh = 1.2,
+                 xheadercenter = 3.5,
+                 ablinehigh = 1,
+                 yupperheader = 1.1)
+
+hist(temp_song_T_transformed$spee,
+     breaks = 50,
+     main = 'Song Speechiness Histogram',
+     xlab = 'Song Speechiness')
+
+rm(speechplot)
+
+```
+
+```{r Delineator 111}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Speechiness Skewness, echo = FALSE}
+
+# show the actual counts of the song Speechiness
+as.data.frame(table(round(temp_song_T_transformed$spee, 1)))
+
+```
+
+```{r Clean Song Speechiness, include = FALSE}
+
+# transform the song instrumentalness into three bins
+temp_song_T_transformed$spee <-
+  ifelse(temp_song_T_transformed$spee < 0.25, 0,
+    ifelse(temp_song_T_transformed$spee >= 0.25 &
+           temp_song_T_transformed$spee < 0.75, 0.5,
+      ifelse(temp_song_T_transformed$spee >= 0.75, 1, 0)))
+
+```
+
+\newpage
+
+```{r Cleaned Song Speechiness Analysis}
+
+# frequency distribution after transformation
+table(temp_song_T_transformed$spee)
+
+```
+
+```{r Delineator 33}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Tempo Analysis, echo=FALSE, fig.height=5, fig.width=14}
+
+par(mfrow = c(1, 2))
+
+tempoplot <- advanced_boxplot(
+                 song_attr_values = temp_song_T_transformed$temp,
+                 song_attr_name = 'Tempo',
+                 song_year_values = temp_song_T_transformed$song.2,
+                 ylimhigh = 1.2,
+                 xheadercenter = 3.5,
+                 ablinehigh = 1.05,
+                 yupperheader = 1.15)
+
+hist(temp_song_T_transformed$temp,
+     breaks = 50,
+     main = 'Song Tempo Histogram',
+     xlab = 'Song Tempo')
+
+rm(tempoplot)
+
+```
+
+```{r Remove Outlier Songs Song Tempo, echo = FALSE}
+
+# create a copy of the dataframe
+# this will stay with none of the outliers removed
+# might come in handy later for analysis purposes
+
+x.copy2 <- temp_song_T_transformed
+
+# iterate through each song decade
+for (x.songdecade in c('1970s', '1980s', '1990s', '2000s', '2010s', 'NA')) {
+
+# store first and third quartiles
+x.Q1 <- as.numeric(summary(temp_song_T_transformed[which(temp_song_T_transformed$song.2 == x.songdecade), 27]) [2])
+x.Q3 <- as.numeric(summary(temp_song_T_transformed[which(temp_song_T_transformed$song.2 == x.songdecade), 27]) [5])
+
+# store upper and lower outliers
+x.LowerOutlier <- x.Q1 - (1.5 * (x.Q3 - x.Q1))
+x.UpperOutlier <- x.Q3 + (1.5 * (x.Q3 - x.Q1))
+
+# remove the outliers
+temp_song_T_transformed <- temp_song_T_transformed[which(
+  
+  # is a lower outlier for the current decade
+  ! (temp_song_T_transformed$song.2 == x.songdecade &
+  temp_song_T_transformed$temp < x.LowerOutlier) &
+    
+  # or is an upper outlier for the current decade
+  ! (temp_song_T_transformed$song.2 == x.songdecade &
+  temp_song_T_transformed$temp  > x.UpperOutlier)), ]
+
+}
+
+# print how many were removed
+cat('Number of Songs Removed:',
+    nrow(x.copy2) - nrow(temp_song_T_transformed))
+
+#reapply the min max transformation
+temp_song_T_transformed <- min_max_transform(temp_song_T_transformed, 27)
+
+```
+
+```{r Cleaned Song Tempo Analysis, echo=FALSE, fig.height=5, fig.width=14}
+
+par(mfrow = c(1, 2))
+
+tempoplot <- advanced_boxplot(
+                 song_attr_values = temp_song_T_transformed$temp,
+                 song_attr_name = 'Tempo',
+                 song_year_values = temp_song_T_transformed$song.2,
+                 ylimhigh = 1.2,
+                 xheadercenter = 3.5,
+                 ablinehigh = 1.05,
+                 yupperheader = 1.15)
+
+hist(temp_song_T_transformed$temp,
+     breaks = 50,
+     main = 'Song Tempo Histogram',
+     xlab = 'Song Tempo')
+
+rm(tempoplot)
+
+```
+
+```{r Delineator 35}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Song Audio Valence Analysis, echo=FALSE, fig.height=5, fig.width=14}
+
+par(mfrow = c(1, 2))
+
+valenceplot <- advanced_boxplot(
+                 song_attr_values = temp_song_T_transformed$vlnc,
+                 song_attr_name = 'Audio_Valence',
+                 song_year_values = temp_song_T_transformed$song.2,
+                 ylimhigh = 1.2,
+                 xheadercenter = 3.5,
+                 ablinehigh = 1.05,
+                 yupperheader = 1.15)
+
+hist(temp_song_T_transformed$vlnc,
+     breaks = 50,
+     main = 'Song Audio Valence Histogram',
+     xlab = 'Song Audio Valence')
+
+rm(valenceplot)
+
+```
+
+```{r Delineator 36}
+
+#---------------------------------------------------------------------------#
+
+```
+
+##### Song Genre and Song Attribute Correlation Matrix
+
+The following pearson correlation matrix shows the correlations between each of
+the song genres and song attributes.
+
+The darker the blue color means higher positive correlation (closer to 1), and
+the darker the orange color means lower negative correlation (closer to -1).
+
+```{r Join Song Attributes with Known Genres, include = FALSE}
+
+# join in the song attributes and the songs with known genres
+
+song_known_genres <- left_join(
+  
+  song_known_genres[, c(1, 3:16)],     # left side
+  song_data,                           # right side
+  by = c('song_name' = 'song_name'))   # by column
+
+```
+
+```{r Genre and Song Attribute Correlation Matrix, echo=FALSE, fig.height=5, fig.width=10}
+
+# create a temporary variable with truncated names to fit on the document
+temp_song_known_genres  <- song_known_genres  # first create a copy
+
+# truncate the column names with a max length of 4 characters
+colnames(temp_song_known_genres) <-
+  substr(colnames(temp_song_known_genres), 1, 4)
+
+# make some manual adjustments to some of the column names
+# after being truncated there were some duplicate column names
+
+colnames(temp_song_known_genres) [16] <- 'pplr'   # manually adjust song_popularity name
+colnames(temp_song_known_genres) [17] <- 'durn'   # manually adjust song_duration name
+colnames(temp_song_known_genres) [25] <- 'mode'   # manually adjust audio mode name
+colnames(temp_song_known_genres) [29] <- 'vlnc'   # manually adjust audio valence name
+
+# show a pearson correlation matrix between song attributes and song genres
+song_genre_corr <- round(cor(
+  temp_song_known_genres[, c(2:15)],
+  temp_song_known_genres[, c(16:21, 23:24, 26:27, 29)]), 2)
+
+# scaled the correlation matrix multiply by 2 to show colors better
+# removed the legend to avoid that causing any confusion
+
+corrplot(song_genre_corr * 2, method = 'color', outline = TRUE, cl.pos = "n")
+
+# note that a few of the song attributes are ommittied so the table fits in the document
+# key, audio mode, and time signature are the columns that are not shown here
+# these variables also did not have any interesting correlations to show
+
+# clean up the environment
+rm(temp_query, song_genre_corr)
+
+```
+
+**Observations**  
+- there are some interesting correlations between song attributes and song genres  
+- example 1: alt / rock / metal / punk are less popular than pop / hiphop / rap / r&b  
+- example 2: jazz / blues / folk / country tend to have more acousticness  
+- example 3: metal / punk tend to have higher energy than the other genres  
+- example 4: hiphop / rap have significantly more speechiness than the other genres  
+- example 5: other has significantly more audio valence than the other genres  
+- this is encouraging because it means it might be possible to effectively infer song genres
+
+\newpage
+
+##### Song Genre Clustering
+
+Based on the song attributes, an unsupervised clustering model will be
+implemented to create clusters of songs.
+
+These clusters of songs could represent genres or they could represent
+other similarities between the songs.
+
+```{r Song Genre Clustering, echo = FALSE, fig.height=8, fig.width=10}
+
+# kmeans clustering
+
+# compute k-means
+create_song_clusters <- function(data, numk) {
+    set.seed(175)
+    km.song <- kmeans(data, numk, iter.max=30)
+    plot <- fviz_cluster(km.song, data = data, geom = c("point"), ellipse.type = "euclid")
+    return(plot)
+}
+
+songallclusterdata <- data.frame()
+for (k in c(5, 7, 9, 11, 13, 15)) {
+  songclusterviz <- create_song_clusters(temp_song_T_transformed[, 19:28], k)
+  songclusterdata <- songclusterviz$data
+  songclusterdata$numK <- paste('K =', k)
+  songallclusterdata <- rbind(songallclusterdata, songclusterdata)
+}
+
+ggplot() +
+  geom_point(
+    data = songallclusterdata,
+    aes(
+      x = x,
+      y = y,
+      colour = cluster
+    )
+  ) +
+  facet_wrap(
+    ~ numK,
+    nrow = 3,
+    ncol = 2, 
+    # labeller = labeller(
+    #   genre = genre_plot_titles)
+    )
+
+# clean up the environment
+rm(songclusterdata, songallclusterdata, songclusterviz, k)
+
+```
+
+**Observations**  
+- there must be some level of disctinction based on the song attributes  
+- it is possible that these clusters could represent genres  
+- for example, genres have their distinct sounds but do overlap
+
+\newpage
+
+##### Association Rules mining
+
+Association rules mining will be performed primarily in the interest of
+understanding what correlations exist with song popularity.
+
+```{r Association Rules Mining Data Preparation, include = FALSE}
+
+#create a new dataframe with the data
+song_main <- left_join(
+  
+  new_song_T[
+    which(new_song_T$song_name %in% temp_song_T_transformed$song),
+    which(colnames(new_song_T) %in% c('song_name', 'song_released'))],
+  
+  song_data[
+  which(! colnames(song_data) %in% c('key', 'liveness', 'audio_mode', 'time_signature'))],
+  
+  by = c('song_name' = 'song_name'))
+
+##### discretization
+
+#discretize the song attribute columns based on summary statistics
+#i.e. five bins - lowoutlier, lowoutlier-Q1, Q1-Q2, Q2-Q3, upperoutlier
+#this way each song attribute is scaled and stays relative to itself
+#a potential benefit of doing it this way is that outliers are seperated
+
+for (x.column.x in seq(3, 12, 1)) {
+  x.tempcolumn.x <- song_main[, x.column.x]
+  x.q1.x <- summary(x.tempcolumn.x) [2] %>% as.numeric()
+  x.q2.x <- summary(x.tempcolumn.x) [3] %>% as.numeric()
+  x.q3.x <- summary(x.tempcolumn.x) [4] %>% as.numeric()
+  x.iqr.x <- x.q3.x - x.q1.x
+  x.outlow.x <- x.q1.x - (1.5 * x.iqr.x)
+  x.outhigh.x <- x.q3.x + (1.5 * x.iqr.x)
+  x.newcolumn.x <- c()
+  for (x.value.x in seq(1, length(x.tempcolumn.x), 1)) {
+    x.newvalue.x <- x.tempcolumn.x [x.value.x]
+    x.newvalue.x <-
+      ifelse(x.newvalue.x <= x.outlow.x, 'vlow',
+        ifelse(x.newvalue.x > x.outlow.x & x.newvalue.x <= x.q1.x, 'low',
+          ifelse(x.newvalue.x > x.q1.x & x.newvalue.x <= x.q2.x, 'med',
+            ifelse(x.newvalue.x > x.q2.x & x.newvalue.x <= x.q3.x, 'med',
+              ifelse(x.newvalue.x > x.q3.x & x.newvalue.x <= x.outhigh.x, 'high',
+                ifelse(x.newvalue.x > x.outhigh.x, 'vhigh', 'undef'))))))
+  x.newcolumn.x <- c(x.newcolumn.x, x.newvalue.x)
+  }
+  song_main[, x.column.x] <- x.newcolumn.x
+}
+
+#manually rename the columns
+colnames(song_main) [3:12] <- c('poplr', 'dur', 'acou', 'dance', 'ener', 'instr', 'loud', 'speech', 'tempo', 'vlnc')
+
+#clean up the environment
+rm(x.column.x, x.iqr.x, x.newcolumn.x, x.newvalue.x, x.outhigh.x, x.outlow.x,
+   x.q1.x, x.q2.x, x.q3.x, x.tempcolumn.x, x.value.x)
+
+#create a copy
+song_main_copy <- song_main
+
+```
+
+```{r Association Rules Mining Generate Rules, include = FALSE}
+
+##### what makes a song popular?
+
+for (x.songdecade.x in unique(song_main$song_released)) {
+  
+  #filter on the current song decade
+  #binarize the song attribute columns
+  x.tempsong.x <- data.frame(cbind(
+    song_main[song_main$song_released == x.songdecade.x, 3:ncol(song_main)] %>% binarize()))
+  
+  #change columns to factors for association rules mining
+  x.tempsong.x <- x.tempsong.x %>% mutate_all(as.numeric)
+  
+  # now the dataset can be converted into a transaction object
+  x.songtransactions.x <- as(as.matrix(x.tempsong.x), "transactions")
+  
+  #create association rules for high and very high popularity
+  x.songrules.x <-
+    apriori(
+    x.songtransactions.x,
+    parameter = list(
+      supp = .02,
+      conf = .01,
+      minlen = 3),
+    appearance = list(
+      rhs = c("poplr__vhigh", "poplr__high"),
+      default = "lhs")
+    )
+  
+  #store the rules in the global environment
+  if (x.songdecade.x == '1970s') {
+        x.songrules1970s.x <<- x.songrules.x} else if (
+      x.songdecade.x == '1980s') {
+        x.songrules1980s.x <<- x.songrules.x} else if (
+      x.songdecade.x == '1990s') {
+        x.songrules1990s.x <<- x.songrules.x} else if (
+      x.songdecade.x == '2000s') {
+        x.songrules2000s.x <<- x.songrules.x} else if (
+      x.songdecade.x == '2010s') {
+        x.songrules2010s.x <<- x.songrules.x} else if (
+      x.songdecade.x == 'NA') {
+        x.songrulesNA.x <<- x.songrules.x}
+  
+}
+  
+```
+
+```{r Delineator 37}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Print Association Rules Function, include = FALSE}
+
+print_association_rules <- function(assocationrulesobject) {
+  
+  # create a data frame from the rules and sorted versions of the dataframe
+  associationrulesdf   <- as(assocationrulesobject, "data.frame")
+  sortedbysupport      <- sqldf('select * from associationrulesdf order by support desc')
+  sortedbyconfidence   <- sqldf('select * from associationrulesdf order by confidence desc')
+  sortedbylift         <- sqldf('select * from associationrulesdf order by lift desc')
+  
+  # round off the measures to 2 decimal points to save room on the document
+  sortedbysupport[, 2:5] <- sortedbysupport[, 2:5] %>% mutate_all(round, 2)
+  sortedbyconfidence[, 2:5] <- sortedbyconfidence[, 2:5] %>% mutate_all(round, 2)
+  sortedbylift[, 2:5] <- sortedbylift[, 2:5] %>% mutate_all(round, 2)
+  
+  # get the top 3 results from each sorted version of the rules
+  x.sortedbysupport.x <- head(sortedbysupport, 3)
+  x.sortedbyconfidence.x <- head(sortedbyconfidence, 3)
+  x.sortedbylift.x <- head(sortedbylift, 3)
+  
+  # print out the results sorted by support
+  cat('Top 3 Rules Sorted by Support \n \n')
+  for (x.rownumber.x in seq(1, 3, 1)) {
+    cat('Rule Number', x.rownumber.x, '\n', 
+         x.sortedbysupport.x[x.rownumber.x, 1], '\n')
+    print.data.frame(x.sortedbysupport.x[x.rownumber.x, 2:6])
+    cat('\n \n')
+  } 
+  
+  # print out the results sorted by confidence
+  cat('Top 3 Rules Sorted by Confidence \n \n')
+  for (x.rownumber.x in seq(1, 3, 1)) {
+    cat('Rule Number', x.rownumber.x, '\n', 
+         x.sortedbyconfidence.x[x.rownumber.x, 1], '\n')
+    print.data.frame(x.sortedbyconfidence.x[x.rownumber.x, 2:6])
+    cat('\n \n')
+  } 
+  
+  # print out the results sorted by lift
+  cat('Top 3 Rules Sorted by Lift \n \n')
+  for (x.rownumber.x in seq(1, 3, 1)) {
+    cat('Rule Number', x.rownumber.x, '\n', 
+         x.sortedbylift.x[x.rownumber.x, 1], '\n')
+    print.data.frame(x.sortedbylift.x[x.rownumber.x, 2:6])
+    cat('\n \n')
+  }
+  
+}
+  
+```
+
+```{r Associative Rules Mining Results 1970s, echo = FALSE}
+
+# print a header with the decade
+cat0('What Makes a Song Popular in the 1970s?  \n \n')
+print_association_rules(x.songrules1970s.x)
+
+```
+
+**Observations**  
+- songs with medium instrumentalness were the most popular  
+- low to medium speechiness is common in popular songs  
+- low audio valence was associated with high confidence
+
+```{r Delineator 38}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Associative Rules Mining Results 1980s, echo = FALSE}
+
+# print a header with the decade
+cat0('What Makes a Song Popular in the 1980s?  \n \n')
+print_association_rules(x.songrules1980s.x)
+
+```
+
+**Observations**  
+- some of the same qualities from the 1970s appear in the 1980s  
+- medium instrumentalness and low to medium speechiness
+
+```{r Delineator 39}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Associative Rules Mining Results 1990s, echo = FALSE}
+
+# print a header with the decade
+cat0('What Makes a Song Popular in the 1990s?  \n \n')
+print_association_rules(x.songrules1990s.x)
+
+```
+
+**Observations**  
+- there seems to be a shift in which song attributes correlate with song popularity  
+- for example, medium acousticness and high audio valence were not seen until now  
+
+```{r Delineator 40}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Associative Rules Mining Results 2000s, echo = FALSE}
+
+# print a header with the decade
+cat0('What Makes a Song Popular in the 2000s?  \n \n')
+print_association_rules(x.songrules2000s.x)
+
+```
+
+**Observations**  
+- not much stands out in this decade compared to the others  
+- it seems like more of a blend of the previous decades
+
+```{r Delineator 43}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Associative Rules Mining Results 2010s, echo = FALSE}
+
+# print a header with the decade
+cat0('What Makes a Song Popular in the 2010s?  \n \n')
+print_association_rules(x.songrules2010s.x)
+
+```
+
+**Observations**  
+- low instrumentalness not medium is associated with high popularity  
+- high danceability appears and is associated with high confidence + lift
+
+```{r Delineator 45}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Associative Rules Mining Results NA, echo = FALSE}
+
+# print a header with the decade
+cat0('What Makes a Song Popular in the unknown years?  \n \n')
+print_association_rules(x.songrulesNA.x)
+
+```
+
+**Observations**  
+- very high acousticness appears in several rules  
+- this is odd because most songs had low acousticness  
+- there is definitely something different about these songs
+
+```{r Associative Rules Mining Clean Up Environment, include = FALSE}
+
+rm(x.songrules.x, x.songrules1970s.x, x.songrules1980s.x, x.songrules1990s.x,
+   x.songrules2000s.x, x.songrules2010s.x, x.songrulesNA.x, x.songtransactions.x,
+   x.tempsong.x, x.songdecade.x, x.Outliers, x.cycle, x.IQR, x.LowerOutlier,
+   x.Q1, x.Q3, x.songdecade, x.UpperOutlier)
+
+```
+
+```{r Delineator 46}
+
+#---------------------------------------------------------------------------#
+
+```
+
+\newpage
+
+##### Perform KNN Trials to determine a K Value
+
+An iteration of trials is performed using a KNN model with different K values
+on data for which the genre is known.
+
+Since it is possible for a song to have multiple genres, iterate through each
+song and each genre one by one, and determine if the song fits in that genre.
+
+First the data is split 80 / 20 training and testing and then the KNN model is
+implemented, the accuracy is measured based on the percent correct of the test data.
+
+```{r Trial KNN model Song Genre, include = FALSE}
+
+# this is going to be tricky because songs can have multiple genres
+# approach: run a k nearest for every individual song genre
+# i.e. run a binary k nearest on all songs for if it is alt, rock, metal, etc.
+# at the end, the results will be re-packed into the multi genre format
+# i.e. the results from each k nearest will become a binary col in the table
+
+# test out different k values for different genres
+# see how much the results are different from eachother
+# this will help decide on what value for k to use
+
+# ---------------------------------------------------------------------------- #
+
+# standardize all of the song attributes using a min max transformation
+# this is because knn model needs standardized attributes to be effective
+
+# create a seperate version as the standardized version
+genre_standardized  <- song_known_genres[
+  which(song_known_genres$song_name %in% temp_song_T_transformed$song), 
+  which(! colnames(song_known_genres) %in% c('key', 'liveness', 'audio_mode', 'time_signature'))]
+
+# iterate through each of the columns of the song attributes, cols 16 - 29
+for (songAttrCol in seq(16, 25, 1)) {
+  
+  # store the values for the column for the current iteration
+  temp_column <- unlist(as.numeric(genre_standardized[, songAttrCol]))
+  
+  # store the min and max values for the column 
+  temp_min    <- min(temp_column); temp_max    <- max(temp_column)
+  
+  # transform the column based on the min max transformation
+  new_column  <- (temp_column - temp_min) / (temp_max - temp_min)
+  
+  # append the transformed column to the main dataframe
+  # if it is the first iteration, create a new variable, otherwise append
+  ifelse(songAttrCol == 16,
+    genre_temp_standardize <- data.frame('X1' = new_column),
+    genre_temp_standardize <- cbind(genre_temp_standardize, new_column))
+  
+}
+
+  # change the column names of the standardized dataframe accordingly
+  colnames(genre_temp_standardize) <- colnames(genre_standardized) [16:25]
+  
+  # replace the values in the main dataframe with the standardized values
+  genre_standardized[, 16:25] <- genre_temp_standardize
+  
+# ---------------------------------------------------------------------------- #
+
+# start out by creating an empty dataframe variable
+# this will be appended to with the results from each trial
+genreKNNres <- data.frame()
+
+# iterate through k values 3-11 by 2 for each genre
+# using odd number k values to prevent ties
+for (genreColNumber in seq(2, 15, 1)) {
+  for (genreKvalue in seq(3, 21, 2)) {
+    
+    set.seed(520) # set seed then partition the data into testing and training data
+    genre_partition   <- createDataPartition(genre_standardized[, genreColNumber], p = 0.8, list = FALSE)
+    genre_training    <- genre_standardized[genre_partition, c(genreColNumber, 16:25)]
+    genre_testing     <- genre_standardized[-genre_partition, c(genreColNumber, 16:25)]
+    
+    # process the knn model for the current iteration
+    genreKNNpred <- knn(train = genre_training[, 2:ncol(genre_training)],  # training data (minus the label)
+                    test = genre_testing[, 2:ncol(genre_testing)],         # testing data (minus the label)
+                    cl = genre_training[, 1],                              # labels from the training data
+                    k = genreKvalue)                                       # k value for the current iteration
+    
+    # store the accuracy percentage from the model
+    TempKNNRes <- round(mean(genreKNNpred == genre_testing[, 1]) * 100, 2)
+    
+    # put the accuracy percentage in a temporary dataframe
+    TempKNNTable <- data.frame(cbind(
+      'Genre'      = colnames(genre_standardized) [genreColNumber],
+      'NumK'       = genreKvalue,
+      'Accuracy'   = TempKNNRes))
+    
+    # append the temporary dataframe to the main dataframe
+    genreKNNres <- rbind(genreKNNres, TempKNNTable)
+    
+    # print progress updates after each model is completed
+    if (genreKvalue == 21) {
+    cat('model complete | Genre:',
+        colnames(genre_standardized) [genreColNumber], '\n')}
+    
+  }
+}
+
+# change the numK and accuracy column to numeric data type
+genreKNNres$NumK       <- as.numeric(genreKNNres$NumK)       # NumK to numeric        
+genreKNNres$Accuracy   <- as.numeric(genreKNNres$Accuracy)   # Accuracy to numeric
+
+# restructure the table to be more readable for printing out
+
+genreKNNdisplay <- dcast(genreKNNres, Genre ~ NumK, mean)                       # cast the k values to columns
+colnames(genreKNNdisplay) [-1] <- paste0('K', colnames(genreKNNdisplay)) [-1]   # add K to the columns
+genreKNNdisplay$Avg <- rowMeans(genreKNNdisplay[, -1])                          # add the row averages
+
+```
+
+```{r Show KNN Results, echo = FALSE}
+
+# overall KNN model accuracy by number of k nearest neighbors
+cat('Overall Accuracy by Number of K Nearest Neighbors \n \n')
+round(colMeans(genreKNNdisplay[, -1]), 0)
+
+# KNN model accuracy by number of k nearest neighbors and genre
+kable(genreKNNdisplay, digits = 0)
+
+```
+
+**Observations**  
+- able to effectively determine song genre with 88% on avg accuracy  
+- K values of 9-21 all produced very similar accuracies  
+- moving forward with a conservative middle of the pack k value of 11  
+- do not want to risk selecting too many k nearest neighbors  
+
+\newpage
+
+##### Infer Missing Song Genres with KNN model K = 11
+
+All of the missing song genres are inferred using a KNN model with a K value of
+11. The training data used is all of the data with known genres.
+
+```{r Infer Missing Song Genres with KNN, include = FALSE}
+
+# ---------------------------------------------------------------------------- #
+
+# make sure that any songs that were removed are removed here
+song_unknown_genres <- song_unknown_genres[
+  which(song_unknown_genres$song_name %in% temp_song_T_transformed$song),
+  which(! colnames(song_unknown_genres) %in% c('key', 'liveness', 'audio_mode', 'time_signature'))]
+song_known_genres <- song_known_genres[
+  which(song_known_genres$song_name %in% temp_song_T_transformed$song),
+  which(! colnames(song_known_genres) %in% c('key', 'liveness', 'audio_mode', 'time_signature'))]
+
+# add in all of the genre columns to the song_unkown_genres dataframe
+# use the reconcile tables function that was introduced earlier
+song_unknown_genres <- reconcile_tables(song_unknown_genres, song_known_genres[, 2:15]) [, -2]
+
+# join in all of the song attributes from the song_data table
+song_unknown_genres <- left_join(song_unknown_genres, song_data, by = c('song_name' = 'song_name'))
+song_unknown_genres <- song_unknown_genres[,
+  which(! colnames(song_unknown_genres) %in% c('key', 'liveness', 'audio_mode', 'time_signature'))]
+
+# trim down the dataframe back to the correct rows
+# some NA rows were added incidentally due to the reconcile tables function
+song_unknown_genres <- song_unknown_genres[-which(is.na(song_unknown_genres$song_name)), ]
+
+# standardize all of the song attributes using a min max transformation
+# this is because knn model needs standardized attributes to be effective
+
+# create a seperate version as the standardized version
+genre_inference  <- song_unknown_genres   # first create a copy
+
+# iterate through each of the columns of the song attributes, cols 16 - 29
+genre_inference <- min_max_transform(genre_inference, seq(16, 25, 1))
+  
+# ---------------------------------------------------------------------------- #
+
+# iterate through each genre column and make an inference
+for (genreColNumber in seq(2, 15, 1)) {
+    
+    # the training data are the known genres
+    # the testing data are the unknown genres
+    genre_training    <- genre_standardized[, c(genreColNumber, 16:25)]
+    genre_testing     <- genre_inference[, c(genreColNumber, 16:25)]
+    
+    # process the knn model for the current iteration
+    genreKNNpred <- knn(train = genre_training[, 2:ncol(genre_training)],  # training data (minus the label)
+                    test = genre_testing[, 2:ncol(genre_testing)],         # testing data (minus the label)
+                    cl = genre_training[, 1],                              # labels from the training data
+                    k = 11)                                                # k value selected as 11 from trials
+    
+    # if its the first iteration, create new variable, otherwise append
+    # this variable will contain all of the inferred genre columns
+    ifelse(genreColNumber == 2,
+      genreKNNInference <- data.frame('X1' = genreKNNpred),
+      genreKNNInference <- cbind(genreKNNInference, genreKNNpred))
+    
+    # print progress updates after each model is completed
+    cat('model complete | Genre:',
+        colnames(genre_standardized) [genreColNumber], '\n')
+    
+}
+  
+# change the column names of the genre inference dataframe accordingly
+colnames(genreKNNInference) <- colnames(song_unknown_genres) [2:15]
+
+# insert the inferred genres into the song_unkown_genres dataframe
+song_unknown_genres[, 2:15] <- genreKNNInference
+
+# finally, create the final dataframe with all of the genres for each song
+song_genre <- rbind(song_known_genres[, 1:15], song_unknown_genres[, 1:15])
+
+```
+
+```{r Genre Inference Results, echo = FALSE}
+
+temp_inference_results <- 
+  
+    sqldf('
+      select
+        sum(alt) as alt,
+        sum(rock) as rock,
+        sum(metal) as metal,
+        sum(punk) as punk,
+        sum(pop) as pop,
+        sum(hiphop) as hiphop,
+        sum(rb) as rb,
+        sum(rap) as rap,
+        sum(jazz) as jazz,
+        sum(blues) as blues,
+        sum(folk) as folk,
+        sum(elect) as elect,
+        sum(other) as other
+      from
+        song_unknown_genres'
+    )
+
+temp_inference_results
+
+# clean up the environment
+
+rm(genre_inference, genre_partition, genre_standardized, genre_temp_standardize,
+   genre_testing, genre_training, genreKNNdisplay, genreKNNInference, genreKNNres,
+   song_known_genres, song_unknown_genres, song_temp_genres,
+   TempKNNTable, genreColNumber, genreKNNpred, genreKvalue, new_column,
+   songAttrCol, temp_column, temp_max, temp_min, TempKNNRes, temp_inference_results)
+
+```
+
+##### Perform KNN Trials to determine a K Value for Song Decade
+
+An iteration of trials is performed using a KNN model with different K values
+on data for which the song decade is known.
+
+First the data is split 80 / 20 training and testing and then the KNN model is
+implemented, the accuracy is measured based on the percent correct of the test data.
+
+```{r Trial KNN model Song Decade, include = FALSE}
+
+# test out different k values for different genres
+# see how much the results are different from eachother
+# this will help decide on what value for k to use
+
+# create a seperate dataframe with the known years
+song_known_years <- temp_song_T_transformed[
+  -which(temp_song_T_transformed$song.2 == 'NA')
+  , c(18, 3:17, 19:28)]
+
+# create a seperate dataframe with the unknown years
+song_unknown_years <- temp_song_T_transformed[
+  which(temp_song_T_transformed$song.2 == 'NA')
+  , c(18, 3:17, 19:28)]
+
+# ---------------------------------------------------------------------------- #
+
+# start out by creating an empty dataframe variable
+# this will be appended to with the results from each trial
+x.yearKNNres.x <- data.frame()
+
+# iterate through k values 3-11 by 2 for each year
+# using odd number k values to prevent ties
+for (x.yearKvalue.x in seq(3, 21, 2)) {
+    
+    set.seed(520) # set seed then partition the data into testing and training data
+    x.year_partition.x   <- createDataPartition(song_known_years[, 1], p = 0.8, list = FALSE)
+    x.year_training.x    <- song_known_years[x.year_partition.x, ]
+    x.year_testing.x     <- song_known_years[-x.year_partition.x, ]
+    
+    # process the knn model for the current iteration
+    x.yearKNNpred.x <- knn(train = x.year_training.x[, 2:ncol(x.year_training.x)],  # training data (minus the label)
+                           test = x.year_testing.x[, 2:ncol(x.year_testing.x)],     # testing data (minus the label)
+                           cl = x.year_training.x[, 1],                             # labels from the training data
+                           k = x.yearKvalue.x)                                      # k value for the current iteration
+    
+    # store the accuracy percentage from the model
+    x.TempKNNRes.x <- round(mean(x.yearKNNpred.x == x.year_testing.x[, 1]) * 100, 2)
+    
+    # put the accuracy percentage in a temporary dataframe
+    x.TempKNNTable.x <- data.frame(cbind(
+      'Year'       = colnames(song_known_years) [1],
+      'NumK'       = x.yearKvalue.x,
+      'Accuracy'   = x.TempKNNRes.x))
+    
+    # append the temporary dataframe to the main dataframe
+    x.yearKNNres.x <- rbind(x.yearKNNres.x, x.TempKNNTable.x)
+    
+    # print progress updates after each model is completed
+    if (x.yearKvalue.x == 21) {
+    cat('model complete | Year:',
+        colnames(song_known_years) [1], '\n')}
+    
+  }
+
+```
+
+```{r Show KNN Results Song Decade, echo = FALSE}
+
+# overall KNN model accuracy by number of k nearest neighbors
+cat('Overall Accuracy by Number of K Nearest Neighbors \n \n')
+kable(x.yearKNNres.x[, -1])
+
+# clean up the environment
+rm(x.year_partition.x, x.year_testing.x, x.year_training.x, x.yearKNNres.x,
+   x.yearKNNpred.x, x.yearKvalue.x, x.TempKNNTable.x, x.TempKNNRes.x,
+   song_main_copy, song_known_years, song_unknown_years, temp_song_known_genres,
+   temp_song_T)
+
+```
+
+**Observations**  
+- the accuracy for inferring the song genre is very good  
+- the accuracy for inferring the song decade is not good  
+- it might be better to model with the missing song decades
+
+\newpage
+
+# Data Modeling
+
+Now that the data has been explored and cleaned, several models will be implemented
+to predict the song popularity and the results will be compared.
+
+The song popularity will be predicted via both classification and regression.
+Song popularity will need to be binned prior to classification models.
+
+The models that will be implemented include, decision tree, naive bayes,
+k nearest neighbors, support vector machine, and neural net.
+
+The objective is to find a model that is suitable for accurately predicting the
+song popularity.
+
+```{r Delineator 115}
+
+#---------------------------------------------------------------------------#
+
+```
+
+##### Sampling
+
+Due to the distribution of song genres being skewed, a sample will be taken
+with an even amount of songs from each genre.
+
+```{r Sampling, include = FALSE}
+
+# a sample of n = 100 is taken from each genre
+# i.e. 100 songs alt, 100 songs rock, ... 100 songs rap, etc.
+# since there is overlap it wont add up exactly to 1400
+
+# add a column for the row indexes
+row.names(song_genre) <- NULL
+song_genre_sample <- song_genre
+song_genre_sample$rownum <- row.names(song_genre_sample)
+song_genre_sample[, -1] <- song_genre_sample[, -1] %>% mutate_all(as.numeric)
+song_genre_sample[complete.cases(song_genre_sample), ]
+
+# create an empty list that will be used to store row indexes
+x.song_genre_sample.x <- data.frame()
+
+# sample alternative - first 100 songs
+set.seed(15)
+x.sample.x <- sample(song_genre_sample[which(song_genre_sample$alt == 1), which(colnames(song_genre_sample) == 'rownum')], 100, replace = FALSE)
+x.song_genre_sample.x <- rbind(x.song_genre_sample.x, song_genre_sample[x.sample.x, ])
+song_genre_sample <- song_genre_sample[-which(song_genre_sample$alt == 1), ]
+colSums(x.song_genre_sample.x[, -c(1, 16)])
+
+# sample rock - 35 songs needed
+set.seed(15)
+x.sample.x <- sample(song_genre_sample[which(song_genre_sample$rock == 1), which(colnames(song_genre_sample) == 'rownum')], 35, replace = FALSE)
+x.song_genre_sample.x <- rbind(x.song_genre_sample.x, song_genre_sample[which(song_genre_sample$rownum %in% x.sample.x), ])
+song_genre_sample <- song_genre_sample[-which(song_genre_sample$rock == 1), ]
+colSums(x.song_genre_sample.x[, -c(1, 16)], na.rm = TRUE)
+
+# sample metal - 91 songs needed
+set.seed(15)
+x.sample.x <- sample(song_genre_sample[which(song_genre_sample$metal == 1), which(colnames(song_genre_sample) == 'rownum')], 91, replace = FALSE)
+x.song_genre_sample.x <- rbind(x.song_genre_sample.x, song_genre_sample[which(song_genre_sample$rownum %in% x.sample.x), ])
+song_genre_sample <- song_genre_sample[-which(song_genre_sample$metal == 1), ]
+colSums(x.song_genre_sample.x[, -c(1, 16)], na.rm = TRUE)
+
+# sample punk - 85 songs needed
+set.seed(15)
+x.sample.x <- sample(song_genre_sample[which(song_genre_sample$punk == 1), which(colnames(song_genre_sample) == 'rownum')], 85, replace = FALSE)
+x.song_genre_sample.x <- rbind(x.song_genre_sample.x, song_genre_sample[which(song_genre_sample$rownum %in% x.sample.x), ])
+song_genre_sample <- song_genre_sample[-which(song_genre_sample$punk == 1), ]
+colSums(x.song_genre_sample.x[, -c(1, 16)], na.rm = TRUE)
+
+# sample pop - 17 songs needed
+set.seed(15)
+x.sample.x <- sample(song_genre_sample[which(song_genre_sample$pop == 1), which(colnames(song_genre_sample) == 'rownum')], 17, replace = FALSE)
+x.song_genre_sample.x <- rbind(x.song_genre_sample.x, song_genre_sample[which(song_genre_sample$rownum %in% x.sample.x), ])
+song_genre_sample <- song_genre_sample[-which(song_genre_sample$pop == 1), ]
+colSums(x.song_genre_sample.x[, -c(1, 16)], na.rm = TRUE)
+
+# sample hiphop - 73 songs needed
+set.seed(15)
+x.sample.x <- sample(song_genre_sample[which(song_genre_sample$hiphop == 1), which(colnames(song_genre_sample) == 'rownum')], 73, replace = FALSE)
+x.song_genre_sample.x <- rbind(x.song_genre_sample.x, song_genre_sample[which(song_genre_sample$rownum %in% x.sample.x), ])
+song_genre_sample <- song_genre_sample[-which(song_genre_sample$hiphop == 1), ]
+colSums(x.song_genre_sample.x[, -c(1, 16)], na.rm = TRUE)
+
+# sample rb - 75 songs needed
+set.seed(15)
+x.sample.x <- sample(song_genre_sample[which(song_genre_sample$rb == 1), which(colnames(song_genre_sample) == 'rownum')], 75, replace = FALSE)
+x.song_genre_sample.x <- rbind(x.song_genre_sample.x, song_genre_sample[which(song_genre_sample$rownum %in% x.sample.x), ])
+song_genre_sample <- song_genre_sample[-which(song_genre_sample$rb == 1), ]
+colSums(x.song_genre_sample.x[, -c(1, 16)], na.rm = TRUE)
+
+# sample rap - 54 songs needed
+set.seed(15)
+x.sample.x <- sample(song_genre_sample[which(song_genre_sample$rap == 1), which(colnames(song_genre_sample) == 'rownum')], 54, replace = FALSE)
+x.song_genre_sample.x <- rbind(x.song_genre_sample.x, song_genre_sample[which(song_genre_sample$rownum %in% x.sample.x), ])
+song_genre_sample <- song_genre_sample[-which(song_genre_sample$rap == 1), ]
+colSums(x.song_genre_sample.x[, -c(1, 16)], na.rm = TRUE)
+
+# sample jazz - 90 songs needed
+set.seed(15)
+x.sample.x <- sample(song_genre_sample[which(song_genre_sample$jazz == 1), which(colnames(song_genre_sample) == 'rownum')], 90, replace = FALSE)
+x.song_genre_sample.x <- rbind(x.song_genre_sample.x, song_genre_sample[which(song_genre_sample$rownum %in% x.sample.x), ])
+song_genre_sample <- song_genre_sample[-which(song_genre_sample$jazz == 1), ]
+colSums(x.song_genre_sample.x[, -c(1, 16)], na.rm = TRUE)
+
+# sample blues - 82 songs needed
+# only 37 songs available
+set.seed(15)
+x.sample.x <- sample(song_genre_sample[which(song_genre_sample$blues == 1), which(colnames(song_genre_sample) == 'rownum')], 37, replace = FALSE)
+x.song_genre_sample.x <- rbind(x.song_genre_sample.x, song_genre_sample[which(song_genre_sample$rownum %in% x.sample.x), ])
+song_genre_sample <- song_genre_sample[-which(song_genre_sample$blues == 1), ]
+colSums(x.song_genre_sample.x[, -c(1, 16)], na.rm = TRUE)
+
+# sample folk - 66 songs needed
+set.seed(15)
+x.sample.x <- sample(song_genre_sample[which(song_genre_sample$folk == 1), which(colnames(song_genre_sample) == 'rownum')], 66, replace = FALSE)
+x.song_genre_sample.x <- rbind(x.song_genre_sample.x, song_genre_sample[which(song_genre_sample$rownum %in% x.sample.x), ])
+song_genre_sample <- song_genre_sample[-which(song_genre_sample$folk == 1), ]
+colSums(x.song_genre_sample.x[, -c(1, 16)], na.rm = TRUE)
+
+# sample country - 65 songs needed
+set.seed(15)
+x.sample.x <- sample(song_genre_sample[which(song_genre_sample$country == 1), which(colnames(song_genre_sample) == 'rownum')], 65, replace = FALSE)
+x.song_genre_sample.x <- rbind(x.song_genre_sample.x, song_genre_sample[which(song_genre_sample$rownum %in% x.sample.x), ])
+song_genre_sample <- song_genre_sample[-which(song_genre_sample$country == 1), ]
+colSums(x.song_genre_sample.x[, -c(1, 16)], na.rm = TRUE)
+
+# sample electronic - 52 songs needed
+set.seed(15)
+x.sample.x <- sample(song_genre_sample[which(song_genre_sample$elect == 1), which(colnames(song_genre_sample) == 'rownum')], 52, replace = FALSE)
+x.song_genre_sample.x <- rbind(x.song_genre_sample.x, song_genre_sample[which(song_genre_sample$rownum %in% x.sample.x), ])
+song_genre_sample <- song_genre_sample[-which(song_genre_sample$elect == 1), ]
+colSums(x.song_genre_sample.x[, -c(1, 16)], na.rm = TRUE)
+
+# sample other - 100 songs needed
+set.seed(15)
+x.sample.x <- sample(song_genre_sample[which(song_genre_sample$other == 1), which(colnames(song_genre_sample) == 'rownum')], 100, replace = FALSE)
+x.song_genre_sample.x <- rbind(x.song_genre_sample.x, song_genre_sample[which(song_genre_sample$rownum %in% x.sample.x), ])
+song_genre_sample <- song_genre_sample[-which(song_genre_sample$other == 1), ]
+colSums(x.song_genre_sample.x[, -c(1, 16)], na.rm = TRUE)
+
+# store the songs from the sampling
+song_sampled <- x.song_genre_sample.x[, 1]
+
+# clean up the environment
+rm(x.sample.x)
+  
+```
+
+```{r Prepare Several Datasets for Modeling, include = FALSE}
+
+# dataset 1 - discrete song popularity and discrete song attributes
+data1 <-    (data.frame(cbind('song_name' = song_sampled)) %>%
+            left_join(song_main[, c(1, 3)], by = c('song_name' = 'song_name')) %>%
+            left_join(song_genre[, -16], by = c('song_name' = 'song_name')) %>%
+            left_join(song_main[, -c(2, 3)], by = c('song_name' = 'song_name'))) [, -1]
+
+            # split into testing and training
+            set.seed(650)
+            partition1 <- createDataPartition(data1[, 1], p = 0.80, list = FALSE)
+            train1 <- data1[partition1, ]
+            test1 <- data1[-partition1, ]
+
+# dataset 2 - discrete song popularity and continuous song attributes
+data2 <-    (data.frame(cbind('song_name' = song_sampled)) %>%
+            left_join(song_main[, c(1, 3)], by = c('song_name' = 'song_name')) %>%
+            left_join(song_genre[, -16], by = c('song_name' = 'song_name')) %>%
+            left_join(temp_song_T_transformed[, c(1, 20:28)], by = c('song_name' = 'song'))) [, -1]
+
+            # split into testing and training
+            set.seed(650)
+            partition2 <- createDataPartition(data2[, 1], p = 0.80, list = FALSE)
+            train2 <- data2[partition2, ]
+            test2 <- data2[-partition2, ]
+
+# dataset 3 - continous song popularity and discrete song attributes
+data3 <-    (data.frame(cbind('song_name' = song_sampled)) %>%
+            left_join(temp_song_T_transformed[, c(1, 19)], by = c('song_name' = 'song')) %>%
+            left_join(song_genre[, -16], by = c('song_name' = 'song_name')) %>%
+            left_join(song_main[, -c(2, 3)], by = c('song_name' = 'song_name'))) [, -1]
+
+            # split into testing and training
+            set.seed(650)
+            partition3 <- createDataPartition(data3[, 1], p = 0.80, list = FALSE)
+            train3 <- data3[partition3, ]
+            test3 <- data3[-partition3, ]
+
+# dataset 4 - continous song popularity and continous song attributes
+data4 <-    (data.frame(cbind('song_name' = song_sampled)) %>%
+            left_join(temp_song_T_transformed[, c(1, 19)], by = c('song_name' = 'song')) %>%
+            left_join(song_genre[, -16], by = c('song_name' = 'song_name')) %>%
+            left_join(temp_song_T_transformed[, c(1, 20:28)], by = c('song_name' = 'song'))) [, -1]
+
+            # split into testing and training
+            set.seed(650)
+            partition4 <- createDataPartition(data4[, 1], p = 0.80, list = FALSE)
+            train4 <- data4[partition4, ]
+            test4 <- data4[-partition4, ]
+
+```
+
+```{r Show the Sampled Data, echo = FALSE, fig.height=5, fig.width=10}
+
+# join in the song generation with the song genres dataframe
+
+x.song_genre_sample.x <- left_join(x.song_genre_sample.x[, -16], new_song_T[, c(1, 2)], by = c('song_name' = 'song_name'))
+
+# create a temporary variable for the distribution of genres by song generation
+
+temp_analysis <- 
+  
+sqldf('
+select
+  song_released,
+  sum(alt) as alt,
+  sum(rock) as rock,
+  sum(metal) as metal,
+  sum(punk) as punk,
+  sum(pop) as pop,
+  sum(hiphop) as hiphop,
+  sum(rb) as rb,
+  sum(rap) as rap,
+  sum(jazz) as jazz,
+  sum(blues) as blues,
+  sum(folk) as folk,
+  sum(elect) as elect,
+  sum(other) as other
+from `x.song_genre_sample.x`
+group by song_released')
+
+# melt the data frame for plotting a stacked bar chart
+
+temp_analysis <- melt(temp_analysis, variable.name = 'Genre', value.name = 'Count')
+
+# what is the distribution of the song genres - by generation?
+# keep in mind a song can have more than one genre
+
+ggplot(temp_analysis, aes(reorder(Genre, -Count), Count)) +
+  geom_col(position = 'stack', aes(fill = song_released), colour = 'black') +
+  ggtitle('\n Distribution of Genres by Song Generation for Sampled Data \n ') +
+  ylab('\n Count \n') + xlab('\n Song Genre \n') +
+  scale_fill_grey(start = 0, end = .9) +
+
+  # some more customizations to the plot
+  theme(
+        
+        # change the font size of x axis and y axis labels to 11
+        axis.text.x = element_text(size = 9), 
+        axis.text.y = element_text(size = 9),
+        
+        # change the x axis and y axis titles to size 12, black, and boldface
+        axis.title.x = element_text(size = 10, color = "black", face = "bold"),
+        axis.title.y = element_text(size = 10, color = "black", face = "bold"),
+        
+        # get rid of the default background
+        panel.background = element_rect(fill = NA)
+        
+        )
+
+```
+
+**Observations**  
+- did not get full 100 songs from song genre = blues due to lack of data  
+- this makes sense becuase blues is not a very popular genre  
+- moving forward regardless of the reduced sample size for the blues genre
+
+```{r Delineator 116}
+
+#---------------------------------------------------------------------------#
+
+```
+
+\newpage
+
+```{r Delineator 120}
+
+#---------------------------------------------------------------------------#
+
+```
+
+##### Decision Tree Model 1
+
+Decision tree classification model using the rpart package.
+
+```{r Decision Tree Model 1, echo = FALSE}
+
+# fit the decision tree model using the rpart package
+
+z.fit <- rpart(poplr ~ ., data = train1, method = "class")
+z.pred <- predict(z.fit, test1[which(test1$vlnc != 'vlow'), -1], type = "class")
+z.res <- data.frame('actual' = test1[which(test1$vlnc != 'vlow'), 1], 'predicted' = z.pred)
+z.accuracy <- mean(z.res$actual == z.res$predicted, na.rm = TRUE)
+
+# show the results from the decision tree model
+cat('Decision Tree Model 1 - Accuracy =', round(z.accuracy * 100, 2), '%', '\n \n')
+
+fancyRpartPlot(z.fit)
+confusionMatrix(table(z.res$actual, z.res$predicted))$table
+
+```
+
+<p>&nbsp;</p>
+
+**Observations**  
+- the model did not perform well  
+- possible causes - noise, discretization method, attributes, model
+
+```{r Delineator 117}
+
+#---------------------------------------------------------------------------#
+
+```
+
+\newpage
+
+```{r Delineator 125}
+
+#---------------------------------------------------------------------------#
+
+```
+
+##### Decision Tree Model 2
+
+Decision tree classification model using the C5.0 package.
+
+```{r Decision Tree Model 2, echo = FALSE}
+
+# model requires a factor outcome
+
+train1[, 1] <- as.factor(train1[, 1])
+train2[, 1] <- as.factor(train2[, 1])
+
+# fit the decision tree model using the C50 package
+
+z.fit <- C5.0(poplr ~ ., data = train2)
+z.pred <- predict(z.fit, test2[, -1])
+z.res <- data.frame('actual' = test1$poplr, 'predicted' = z.pred)
+z.accuracy <- mean(z.res$actual == z.res$predicted, na.rm = TRUE)
+
+# show the results from the decision tree model
+
+overall <- as.data.frame(confusionMatrix(table(z.res$actual, z.res$predicted))$overall)
+colnames(overall) <- 'Metric'
+kable(overall)
+
+```
+
+<p>&nbsp;</p>
+
+```{r Decision Tree 2 Confusion Matrix, echo = FALSE}
+
+cat('\n Decision Tree 2 Confusion Matrix \n')
+
+kable(confusionMatrix(table(z.res$actual, z.res$predicted))$table)
+
+```
+
+<p>&nbsp;</p>
+
+```{r Decision Tree 2 Precision and Recall, echo = FALSE}
+
+cat('\n Decision Tree 2 Precision and Recall \n')
+
+(confusionMatrix(table(z.res$actual, z.res$predicted))$byClass) [, c(5, 6)]
+
+```
+
+<p>&nbsp;</p>
+
+**Observations**  
+- the model did not perform well  
+- decision tree is probably not effecive for this prediction task
+
+```{r Delineator 135}
+
+#---------------------------------------------------------------------------#
+
+```
+
+```{r Delineator 140}
+
+#---------------------------------------------------------------------------#
+
+```
+
+##### Naive Bayes Model 1
+
+Naive Bayes classification model using the e1071 package.
+
+```{r Naive Bayes Model 1, echo = FALSE}
+
+# fit the naive bayes model
+
+z.fit <- naiveBayes(poplr ~ ., data = train1) # accuracy = 23.4%
+z.pred <- predict(z.fit, test1[, -1])
+z.res <- data.frame('actual' = test1$poplr, 'predicted' = z.pred)
+z.accuracy <- mean(z.res$actual == z.res$predicted, na.rm = TRUE)
+
+# show the results from the naive bayes model
+
+overall <- as.data.frame(confusionMatrix(table(z.res$actual, z.res$predicted))$overall)
+colnames(overall) <- 'Metric'
+kable(overall)
+
+```
+
+<p>&nbsp;</p>
+
+**Observations**  
+- results about the same as decision tree  
+- possible causes - noise, discretization method, attributes, model
+
+```{r Delineator 300}
+
+#---------------------------------------------------------------------------#
+
+```
+
+##### Naive Bayes Model 2
+
+Same as previous but with various discretization methods.
+
+```{r Naive Bayes Model 2, include = FALSE}
+
+z.nbresults <- c()
+
+# iterate from 5 to 20 bins
+# this is the number of bins that the song attributes will be
+# discretized into each time
+for (z.breaks in seq(5, 20, 1)) {
+  for (z.method in c("interval", "frequency")) {
+
+# make a fresh copy of the data
+data4new <- data4
+
+# discretize the song attributes by the corresponding
+# method and number of breaks
+data4new[, c(1, 16:24)] <- data4new[, c(1, 16:24)] %>%
+  mutate_all(discretize, method = z.method, breaks = z.breaks)
+
+# split into testing and training data
+set.seed(470)
+partition4new <- createDataPartition(data4new[, 1], p = 0.80, list = FALSE)
+train4new <- data4new[partition4new, ]
+test4new <- data4new[-partition4new, ]
+
+# fit the naive bayes model
+
+z.fit <- naiveBayes(pop.1 ~ ., data = train4new)
+z.pred <- predict(z.fit, test4new[, -1])
+z.res <- data.frame('actual' = test4new$pop.1, 'predicted' = z.pred)
+z.accuracy <- mean(z.res$actual == z.res$predicted, na.rm = TRUE)
+
+# append the results to the main list
+z.nbresults <- c(z.nbresults, z.accuracy)
+
+  }
+}
+
+```
+
+<p>&nbsp;</p>
+
+```{r Naive Bayes Model 2 Results, echo = FALSE}
+
+cat('Results from Different Number of Bins \n \n',
+    paste0(round(z.nbresults * 100, 2), '%  '))
+
+```
+
+<p>&nbsp;</p>
+
+**Observations**  
+- changing the bins did not improve the result  
+- naive bayes does not seem to be effective either  
+
+```{r Delineator 301}
+
+#---------------------------------------------------------------------------#
+
+```
+
+\newpage
+
+##### K Nearest Neighbors
+
+K nearest neighbors model with a K value of 21.
+
+```{r K Nearest Neighbors, echo = FALSE}
+
+# change the song genres to numeric
+
+train2[, 1] <- as.factor(train2[, 1])
+test2[, 1] <- as.factor(test2[, 1])
+train2[, 2:15] <- train2[, 2:15] %>% mutate_all(as.numeric)
+test2[, 2:15] <- test2[, 2:15] %>% mutate_all(as.numeric)
+
+# process the knn model for the current iteration
+z.knn <- knn(train = train2[, 2:ncol(train2)],                      # training data (minus the label)
+                       test = test2[, 2:ncol(test2)],               # testing data (minus the label)
+                       cl = train2[, 1],                            # labels from the training data
+                       k = 21)                                      # k value for the current iteration
+
+# store the accuracy percentage from the model
+z.res <- data.frame('actual' = test2$poplr, 'predicted' = z.knn)
+z.accuracy <- mean(z.res$actual == z.res$predicted, na.rm = TRUE)
+
+# show the results from the random forest model
+
+overall <- as.data.frame(confusionMatrix(table(z.res$actual, z.res$predicted))$overall)
+colnames(overall) <- 'Metric'
+kable(overall)
+
+```
+
+<p>&nbsp;</p>
+
+```{r KNN Confusion Matrix, echo = FALSE}
+
+cat('\n KNN Confusion Matrix \n')
+
+kable(confusionMatrix(table(z.res$actual, z.res$predicted))$table)
+
+```
+
+<p>&nbsp;</p>
+
+```{r KNN Precision and Recall, echo = FALSE}
+
+cat('\n KNN Precision and Recall \n')
+
+(confusionMatrix(table(z.res$actual, z.res$predicted))$byClass) [, c(5, 6)]
+
+```
+
+<p>&nbsp;</p>
+
+**Observations**  
+- the knn model did not perform well  
+- none of the classification models have produced good results  
+
+\newpage
+
+##### SVM Model
+
+A regression SVM model will be implemented to predict song popularity.
+
+```{r SVM Model, echo=FALSE}
+
+# change the song genres to numeric
+
+train4[, 2:15] <- train4[, 2:15] %>% mutate_all(as.numeric)
+test4[, 2:15] <- test4[, 2:15] %>% mutate_all(as.numeric)
+
+# fit the SVM model
+
+z.fit <- svm(pop.1 ~ ., data = train4, kernel = "polynomial", cost = 1)
+z.pred <- predict(z.fit, test4[, -1])
+z.res <- data.frame('actual' = test4$pop.1, 'predicted' = z.pred)
+z.res$error <- z.res$predicted - z.res$actual
+z.res$abserror <- abs(z.res$predicted - z.res$actual)
+z.accuracy <- 1 - (sum(z.res$abserror) / sum(z.res$actual))
+z.avgerror <- mean(z.res$error)
+z.avgabserror <- mean(z.res$abserror)
+z.biaspct <- sum(z.res$error) / sum(z.res$actual)
+
+# show the results from the SVM model
+
+cat(' Accuracy =', paste0(round(z.accuracy * 100, 2), '%'), '\n',
+    'Avg Abs Error =', round(z.avgabserror * 100, 2), '\n',
+    'Prediction Bias =', paste0(round(z.biaspct * 100, 2), '%'), '\n')
+
+```
+
+```{r SVM Model Plot, echo=FALSE, fig.height=3, fig.width=3}
+
+plot(z.res[, c(1, 2)],
+     xlab('Actual Song Popularity'),
+     ylab('Predicted Song Popularity'))
+
+```
+
+```{r SVM Model Appendix}
+
+# kernel = polynomial, cost = 1, degree = 3 -----> accuracy 66%
+# kernel = polynomial, cost = 5, degree = 3 -----> accuracy 59%
+# kernel = polynomial, cost = 10, degree = 3 -----> accuracy 55%
+# kernel = polynomial, cost = 1, degree = 4 -----> accuracy 66%
+# kernel = polynomial, cost = 1, degree = 5 -----> accuracy 64%
+# kernel = polynomial, cost = 1, degree = 6 -----> accuracy 62%
+# type = nu-regression, kernel = linear, cost = 1 -----> accuracy 64%
+# type = nu-regression, kernel = linear, cost = 25 -----> accuracy 62%
+# type = nu-regression, kernel = linear, cost = 50 -----> accuracy 66%
+# type = nu-regression, kernel = linear, ost = 500 -----> accuracy 66%
+# type = nu-regression, kernel = polynomial, cost = 5 -----> accuracy 60%
+
+```
+
+<p>&nbsp;</p>
+
+**Observations**  
+-  the polynomial kernel with a cost of 1 and degree of 3 gave best results  
+-  accuracy was 66% when predicting a continuous song popularity  
+-  the SVM model has better results than the decision tree and naive bayes
+
+\newpage
+
+##### Random Forest Model
+
+A regression random forest model will be implemented to predict song popularity.
+
+```{r Random Forest Model, echo = FALSE}
+
+# fit the random forest model
+
+# z.fit <- randomForest(pop.1 ~ ., data = train4, ntree = 10) # accuracy 65.8%
+# z.fit <- randomForest(pop.1 ~ ., data = train4, ntree = 50) # accuracy 67%
+# z.fit <- randomForest(pop.1 ~ ., data = train4, ntree = 100) # accuracy 67.2%
+z.fit <- randomForest(pop.1 ~ ., data = train4, ntree = 100) # accuracy 67.2%
+z.pred <- predict(z.fit, test4[, -1], type = c("response"))
+z.res <- data.frame('actual' = test4$pop.1, 'predicted' = z.pred)
+z.res$error <- z.res$predicted - z.res$actual
+z.res$abserror <- abs(z.res$predicted - z.res$actual)
+z.accuracy <- 1 - (sum(z.res$abserror) / sum(z.res$actual))
+z.avgerror <- mean(z.res$error)
+z.avgabserror <- mean(z.res$abserror)
+z.biaspct <- sum(z.res$error) / sum(z.res$actual)
+
+# show the results from the random forest model
+
+cat(' Accuracy =', paste0(round(z.accuracy * 100, 2), '%'), '\n',
+    'Avg Abs Error =', round(z.avgabserror * 100, 2), '\n',
+    'Prediction Bias =', paste0(round(z.biaspct * 100, 2), '%'), '\n')
+
+```
+
+```{r Random Forest Model Plot, echo=FALSE, fig.height=3, fig.width=3}
+
+plot(z.res[, c(1, 2)],
+     xlab('Actual Song Popularity'),
+     ylab('Predicted Song Popularity'))
+
+```
+
+**Observations**  
+- the random forest with 100 trees gave best results  
+- after 100 trees the accuracy begins to flatten  
+- the random forest was a little better than the SVM  
+
+\newpage
+
+```{r Neural Network Model 1, echo = FALSE}
+
+# # assemble the dataframe for the svm model
+# 
+# z.data <- (data.frame(cbind('song_name' = song_sampled)) %>%
+#           left_join(song_main[, c(1, 3)], by = c('song_name' = 'song_name')) %>%
+#           left_join(song_genre, by = c('song_name' = 'song_name')) %>%
+#           left_join(temp_song_T_transformed[, c(1, 20:28)], by = c('song_name' = 'song'))) [, -1]
+# 
+# # change the song genres to numeric
+# 
+# z.data[, 1] <- as.factor(z.data[, 1])
+# z.data[, 2:15] <- z.data[, 2:15] %>% mutate_all(as.numeric)
+# z.data <- z.data[complete.cases(z.data), ]
+# z.data <- data.frame(cbind(z.data %>% select(poplr) %>% binarize(), z.data[, 2:ncol(z.data)]))
+# 
+# # split the dataframe into training and testing
+# 
+# set.seed(650)
+# z.partition <- createDataPartition(z.data[, 1], p = 0.80, list = FALSE)
+# z.train <- z.data[z.partition, ]
+# z.test <- z.data[-z.partition, ]
+# 
+# # Set up formula
+# n <- names(z.train)
+# f <- as.formula(paste("poplr__high +
+#                       poplr__low +
+#                       poplr__med +
+#                       poplr__vhigh +
+#                       poplr__vlow ~",
+#                       paste(n[!n %in% c("poplr__high",
+#                                         "poplr__low",
+#                                         "poplr__med",
+#                                         "poplr__vhigh",
+#                                         "poplr__vlow")],
+#                             collapse = " + ")))
+# 
+# # fit the neural network model
+# 
+# z.fit <- neuralnet(f,
+#                    data = z.train,
+#                    hidden = 3,
+#                    act.fct = "logistic",
+#                    linear.output = FALSE)
+# 
+# z.pred <- predict(z.fit, z.test[, -1])
+# 
+# # Accuracy (training set)
+# original_values <- max.col(z.test[, 1:5])
+# pr.nn_2 <- max.col(z.pred)
+# mean(pr.nn_2 == original_values)
+
+```
+
+##### Neural Net
+
+A regression neural net will be implemented to predict song popularity.
+
+```{r Neural Network Model, echo = FALSE}
+
+# Set up formula
+n <- names(train4)
+f <- as.formula(paste("pop.1 ~",
+                      paste(n[!n %in% c("pop.1")],
+                            collapse = " + ")))
+
+# fit the neural network model
+
+# z.fit <- neuralnet(f, data = train4, linear.output = TRUE) # accuracy = 66.9%
+z.fit <- neuralnet(f, data = train4, hidden = 2, linear.output = TRUE) # accuracy = 61.4%
+z.pred <- predict(z.fit, test4[, -1])
+z.res <- data.frame('actual' = test4$pop.1, 'predicted' = z.pred)
+z.res$error <- z.res$predicted - z.res$actual
+z.res$abserror <- abs(z.res$predicted - z.res$actual)
+z.accuracy <- 1 - (sum(z.res$abserror) / sum(z.res$actual))
+z.avgerror <- mean(z.res$error)
+z.avgabserror <- mean(z.res$abserror)
+z.biaspct <- sum(z.res$error) / sum(z.res$actual)
+
+# show the results from the neural net model
+
+cat(' Accuracy =', paste0(round(z.accuracy * 100, 2), '%'), '\n',
+    'Avg Abs Error =', round(z.avgabserror * 100, 2), '\n',
+    'Prediction Bias =', paste0(round(z.biaspct * 100, 2), '%'), '\n')
+
+```
+
+```{r Neural Net Model Plot 2, echo=FALSE, fig.height=3, fig.width=3}
+
+plot(z.res[, c(1, 2)],
+     xlab('Actual Song Popularity'),
+     ylab('Predicted Song Popularity'))
+
+```
+
+```{r Neural Net Model Plot 1, echo=FALSE, fig.height=3, fig.width=3}
+
+plot(z.fit, rep = "best")
+
+```
+
+<p>&nbsp;</p>
+
+**Observations**  
+- the neural net produced similar results to SVM and random forest  
+- adding additional hidden layers did not increase the accuracy  
+
+\newpage
+
+##### Linear Model
+
+A regression linear model will be implemented to predict song popularity.
+
+```{r Linear Regression Model, echo = FALSE}
+
+z.fit <- lm(pop.1 ~ ., data = train4)
+z.pred <- predict(z.fit, test4[, -1])
+z.res <- data.frame('actual' = test4$pop.1, 'predicted' = z.pred)
+z.res$error <- z.res$predicted - z.res$actual
+z.res$abserror <- abs(z.res$predicted - z.res$actual)
+z.accuracy <- 1 - (sum(z.res$abserror) / sum(z.res$actual))
+z.avgerror <- mean(z.res$error)
+z.avgabserror <- mean(z.res$abserror)
+z.biaspct <- sum(z.res$error) / sum(z.res$actual)
+
+# show the results from the SVM model
+
+cat(' Accuracy =', paste0(round(z.accuracy * 100, 2), '%'), '\n',
+    'Avg Abs Error =', round(z.avgabserror * 100, 2), '\n',
+    'Prediction Bias =', paste0(round(z.biaspct * 100, 2), '%'), '\n')
+
+```
+
+```{r Store Linear Model Plot, echo=FALSE, fig.height=7, fig.width=7}
+
+par(mfrow = c(2, 2))
+plot(z.fit)
+
+```
+
+**Observations**  
+- the linear model performed similar to the other models  
+- the regression models had similar performance
+
+\newpage
+
+# Project Conclusion
+
+Through the analysis of the two original datasets from Kaggle along with the
+two datasets retrieved from Wikipedia, the conclusion will answer the original
+questions stated in the introduction. 
+
+**How have popular songs change overtime?**
+
+As noted in the introduction, music has evolved over time. Song attributes such
+as acousticness, danceability, loudness, tempo, etc. have changed with culture
+and generations. The findings in this project reflect that song popularity has
+increased positively over time, with the highest frequency of popular songs in
+the 2010s. Over time the types songs that are popular have also changed. For example,
+alternative and Metal started off popular but over time have declined in popularity.
+Some genres have increased in popularity over time, such as Country and Pop. In the
+1970s and 1980s, songs with low to medium instrumentalness and low to medium
+speechiness correlated with higher popularity. In the 1990s and 2000s, attributes 
+such as acousticness and audio valence correlate with popular songs. Additionally,
+in the 2000s, there was a shift to a new song attribute, danceability, which was 
+found to be correlated with song popularity.
+
+**Are there certain attributes that correlate with popular songs?**
+
+The findings indicate that there are certain attributes that correlate with
+popular songs. One of which was whether or not the song was a single. A single is
+typically a song that is released earlier and separately from an album, and then
+later, appear on an album. A single is important because it gives the consumer a
+taste of the artists’ new music and helps promote the album because consumers
+have gotten familiar to the music from the single song release. The data shows
+that there is a positive correlation between a song single and song popularity.
+Songs that come out as singles generally have 5%-10% greater song popularity.
+The data also shows that popular songs are largely defined by the generation, and
+what a particular generation is listening to and liking at the moment. In 1970 and
+1980s, popular possessed qualities such as medium instrumentalness, high tempo,
+low audio valence and medium speechiness. In the 1990s- 2010s, there’s a shift
+in song attributes related to popular songs with attributes such as medium to
+high acousticness, high energy, high tempo, low speechiness, and high danceability.
+From a general music knowledge, these findings make sense to see a shift
+in song attributes of popular songs between decades. Music groups like boy bands
+like *NSYNC or Backstreet Boys that promote songs that have high energy, high
+danceability originated in the mid 1990s and these groups are believed to be two
+of the most popular bands with many popular songs then and still now.
+
+**Can the popularity of a song be predicted based on its attributes?**
+
+The overall conclusion is yes, to a certain extend song popularity can be predicted.
+It became evident, however, after applying several different prediction techniques
+predicting song popularity is a regression problem and not a classification problem.
+The classification models - decision tree, naive bayes, and k nearest neighbors -
+did not perform well. Furthermore, even after removing outliers, tuning model
+parameters, and discretizing the data in multiple ways, the classification models
+still did not perform well. On the other hand, the regression models - support vector
+machine, random forest, neural network, and general linear models - did perform well.
+These models were able to predict song popularity with about 70% accuracy.
+
+This is all taking into consideration major challenges with data quality. The data
+was cleaned up as much as possible, including removing outliers, transforming
+the song attributes, inferring missing song genres, and removing non-significant
+variables, but yet was far from perfect. When taking that into consideration, it is
+actually pretty impressive that the song popularity was able to be predicted as
+accurately as it was. Not to mention, there were large biases in the types of songs
+in the dataset due to the listening preferences and playlists of the creator of
+the dataset, but this was mitigated prior to the predictive modeling by sampling
+the data. The quality of the prediction can only be as good as the quality of the
+data that goes into it.
+
+**Final thoughts and next steps**
+
+The results from this project were promising. This project shows that it is possible
+to predict the popularity of a song. If more resources were invested to
+improve the quality of the data, or to collect more data such as additional song
+attributes, the accuracy of predicting the song popularity could only increase and it
+may very well prove to be worthwhile for music production company to do. This project
+only scratches the surface of what can potentially be done in the music industry,
+but it does provide a foundation for analytics in music that can continue to built on.
+
+```{r Appendix Song Info Web Scraping Code, include = FALSE, eval = FALSE}
+
+#-------------------------------------------------------------------------------#
+### initialization ###
+
+require(dplyr)
+require(rvest)
+require(stringr)
+require(sqldf)
+
+#-------------------------------------------------------------------------------#
+### web scraping function defined below ###
+
+# test links - used these to build out the web scraping logic
+
+# song_wiki_link <- 'https://en.wikipedia.org/wiki/Saturnz_Barz'
+# song_wiki_link <- 'https://en.wikipedia.org/wiki/Hate_to_Say_I_Told_You_So'
+# song_wiki_link <- 'https://en.wikipedia.org/wiki/Heaven%27s_Just_a_Sin_Away'
+# song_wiki_link <- 'https://en.wikipedia.org/wiki/Good_Vibrations'
+# song_wiki_link <- 'https://en.wikipedia.org/wiki/Love_Wins_(song)'
+
+#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
+
+song_wiki_scraper <- function(song_wiki_link, song_info_part) {
+  
+# the song part info arg is an input as either 'Genre', 'Label', 'Songwriter', 'Producer'
+
+#---------| read the web page based on the link that was input |----------------#
+
+song_wiki_page <- read_html(song_wiki_link)
+
+#------| return a list of all of the pieces of the infobox table |--------------#
+
+iteration1  <-
+song_wiki_page            %>%
+html_nodes('.vevent')     %>%
+html_children()           %>%
+html_children()
+
+#------| filter the list down just to the piece that contains the input |-------#
+
+iteration2 <-
+  iteration1[which(
+    grepl(song_info_part, iteration1))]
+
+#------| special case: if iteration2 has more than 1 element |------------------#
+
+# does iteration2 contain more than one element?
+testlength <- ifelse(
+  length(iteration2) > 1,
+    TRUE, FALSE)
+
+# if yes, are the elements the same or are they different?
+testunique <- ifelse(
+  testlength == TRUE &
+  length(unique(as.character(iteration2))) == 1,
+    TRUE, FALSE)
+
+# if they are the same, just take the first element
+iteration2 <- if (testunique == TRUE) {
+  iteration2[1]} else {iteration2}
+
+# if they are not the same, does one of them have a seperated hlist?
+# if yes, take that one, otherwise just take the first element
+iteration2 <- if (testunique == FALSE & testlength == TRUE) {
+  if (max(TRUE %in% grepl('hlist-separated', iteration2))) {
+    iteration2[which(grepl('hlist-separated', iteration2))]} else {
+      iteration2[1]}} else {
+        iteration2}
+
+#------| check if iteration2 is nested with more than one |---------------------#
+
+# if there is a seperated hlist, then it is nested
+testnested <- ifelse(
+  max(grepl('hlist-separated', iteration2)), TRUE, FALSE)
+
+# special case: sometimes it is nested without a seperated hlist
+testnested2 <- ifelse(
+  testnested == FALSE &
+  length(unique(unlist(str_locate_all(iteration2 %>% html_text(), '\\n')))) > 1,
+    TRUE, FALSE)
+
+#-----------------------| drill down into the next level |----------------------#
+
+iteration3 <- 
+  iteration2 %>%
+  html_children()
+
+#-----------------| ilter it down to just the piece that we need |--------------#
+
+iteration4 <-
+  iteration3[which(
+    grepl('hlist', iteration3))]
+
+#----------| parse the final result dependent on several logical tests|---------#
+
+iteration5 <-
+  
+  # if it was hidden nested, drill down 2 layers then get text
+  
+  if (testnested2 == TRUE)  {
+         iteration4       %>%
+         html_children()  %>%
+         html_children()  %>%
+         html_text()        }   else if (
+  
+  # if it was not nested, no drill down necessary just get text
+           
+      testnested == FALSE) {
+         iteration4       %>%
+         html_text()        }   else    {
+
+  # if it was nested but not hidden nested, drill down 3 layers then get text
+           
+        iteration4        %>%
+        html_children()   %>%
+        html_children()   %>%
+        html_children()   %>%
+        html_text()         }
+
+#-------------------| clean up the result as needed |---------------------------#
+
+# get rid of (s) where it exists. no effect if it doesn't exist.
+# for example, sometimes there is songwriter or songwriter(s)
+
+iteration5 <-
+  trimws(gsub('\\(s\\)', '', iteration5))
+
+#-------------------------------------------------------------------------------#
+
+return(iteration5)
+}
+
+#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
+
+#-------------------------------------------------------------------------------#
+# initialize empty song master. Each record will be appended here.
+
+song_master <- data.frame()
+
+#-------------------------------------------------------------------------------#
+# initialize the for loop. Currently testing on 50 iterations.
+
+for (song_artist_ID in paste(song_artist$song_name, song_artist$artist_name)) {
+
+#-------------------------------------------------------------------------------#
+# initialize variables. Everything starts off as NA - values assigned later
+
+song_wiki_link    <- NA
+song_single       <- NA
+song_isalbum      <- NA
+song_isartist     <- NA
+song_released     <- NA
+song_genre        <- NA
+song_label        <- NA
+song_songwriter   <- NA
+song_producer     <- NA
+
+#-------------------------------------------------------------------------------#
+# dynamically create the google search link
+
+song_search_text <- paste(song_artist_ID, 'Wikipedia')
+song_search_text <- gsub(' ', '+', song_search_text) %>% trimws()
+song_google_link <- paste0("https://www.google.com/search?q=", song_search_text)
+
+#-------------------------------------------------------------------------------#
+# attempt to retrieve wikipedia link from google search
+
+# read the first page of google search
+skiptonext <- FALSE
+tryCatch({
+  
+google_search_page <- read_html(song_google_link)
+
+# this is a list of links on google page
+google_search_result <-
+  (google_search_page    %>%
+  html_nodes('body')     %>%
+  html_children()) [2]   %>%
+  html_children()        %>%
+  html_nodes('a')        %>%
+  html_attr('href')},
+
+error = function(e) {skiptonext <<- TRUE})
+
+if (skiptonext) { #----------------------
+song_sample$song_wiki_link    <- NA
+song_sample$song_single       <- NA
+song_sample$song_isalbum      <- NA
+song_sample$song_isartist     <- NA
+song_sample$song_released     <- NA
+song_sample$song_genre        <- NA
+song_sample$song_label        <- NA
+song_sample$song_songwriter   <- NA
+song_sample$song_producer     <- NA
+
+print(paste0('song skipped: ', song_artist_ID, ' #',
+   which(paste(song_artist$song_name, song_artist$artist_name) == song_artist_ID)))}
+
+if (skiptonext) {next} #----------------
+
+# parse the list of links for the wiki link
+# if the wiki link is there, this is reliable
+# if its not there, might return incorrect link
+# if its incorrect, program will realize it later
+google_search_result <- 
+  google_search_result[which(
+    ! grepl('search?', google_search_result) &
+    ! grepl('maps'   , google_search_result) &
+      grepl('url?'   , google_search_result) &
+      grepl('wiki'   , google_search_result))] [1]
+
+# the link is buried between two characters
+# the first character is the first '=' sign of the string
+parseresultstart <-
+  unique(unlist(str_locate_all(google_search_result, '='))) [1] + 1
+
+# the second character is the first '&' sign of the string
+parseresultend <-
+  unique(unlist(str_locate_all(google_search_result, '&'))) [1] - 1
+
+# extract the link by the text between the '=' and the '&'
+song_wiki_link <-
+  substr(google_search_result, parseresultstart, parseresultend)
+
+# special case: if there is an apostrophe in the link,
+# it gets encoded as '%27'. The '%', however, is
+# also encoded as '%25'. Decode '%25' to '%' for it to work.
+song_wiki_link <-
+  gsub('\\%25', '\\%', song_wiki_link)
+
+song_sample <- data.frame(cbind('song_wiki_link' = song_wiki_link,
+                                'song_id' = song_artist_ID))
+
+#-------------------------------------------------------------------------------#
+# read the page, if error, everything NA and skip to next loop iteration
+
+skiptonext <- FALSE
+tryCatch({
+  song_wiki_page <- 
+    read_html(song_wiki_link)},
+error = function(e) {
+  skiptonext <<- TRUE})
+
+if (skiptonext) { #----------------------
+song_sample$song_wiki_link    <- NA
+song_sample$song_single       <- NA
+song_sample$song_isalbum      <- NA
+song_sample$song_isartist     <- NA
+song_sample$song_released     <- NA
+song_sample$song_genre        <- NA
+song_sample$song_label        <- NA
+song_sample$song_songwriter   <- NA
+song_sample$song_producer     <- NA
+
+print(paste0('song skipped: ', song_artist_ID, ' #',
+   which(paste(song_artist$song_name, song_artist$artist_name) == song_artist_ID)))}
+
+if (skiptonext) {next} #----------------
+
+#-------------------------------------------------------------------------------#
+# attempt to scrape the info box, 
+
+tryCatch(                   {
+  song_table_infobox        <-
+    song_wiki_page          %>%
+    html_nodes('.vevent')   %>%
+    html_table()            %>%
+    .[[1]]                  },
+error = function(e)         {
+  song_table_infobox   <<- NA
+  song_single          <<- NA
+  song_isalbum         <<- NA})
+
+#-------------------------------------------------------------------------------#
+# if it has the word Single it is a single
+
+tryCatch({
+  song_single <- ifelse(
+    max(TRUE %in%
+      grepl('Single', song_table_infobox)),
+  1, 0) },
+error = function(e) {
+  song_single <<- NA})
+
+#-------------------------------------------------------------------------------#
+# if it has the word Album it is an album
+
+tryCatch({
+  song_isalbum <- ifelse(
+    max(TRUE %in%
+      grepl('Album', song_table_infobox)),
+    1, 0) },
+error = function(e) {
+  song_isalbum <<- NA})
+
+#-------------------------------------------------------------------------------#
+# attempt to scrape .plainlist node then check it for certain text
+# words like 'Origin', 'Born', indicate artist homepage and not a song
+
+tryCatch({
+  song_artist_test <-
+    as.character(
+    (song_wiki_page %>%
+    html_nodes('.plainlist')) [1])},
+error = function(e) {
+  song_artist_test <<- NA})
+
+tryCatch({
+song_isartist <- ifelse(
+  max(TRUE %in%
+    grepl('Origin',         song_artist_test)   |
+    grepl('Born',           song_artist_test)   |
+    grepl('Occupation',     song_artist_test)   |
+    grepl('Years active',   song_artist_test)   |
+    grepl('Website',        song_artist_test)  ),
+  1, 0)},
+error = function(e) {
+  song_isartist <<- NA})
+
+#-------------------------------------------------------------------------------#
+# retrieve the song release date based on the infobox node
+
+tryCatch({
+  song_released <- as.character(
+    song_table_infobox[which(
+      song_table_infobox[,1] == 'Released'), 2]) },
+error = function(e) {
+  song_released <<- NA})
+
+#-------------------------------------------------------------------------------#
+# move forward with scraping song data
+
+tryCatch({song_genre        <- song_wiki_scraper(song_wiki_link, 'Genre')},
+  error = function(e) {song_genre        <<- NA})
+
+tryCatch({song_label        <- song_wiki_scraper(song_wiki_link , 'Label')},
+  error = function(e) {song_label        <<- NA})
+
+tryCatch({song_songwriter   <- song_wiki_scraper(song_wiki_link , 'Songwriter')},
+  error = function(e) {song_songwriter   <<- NA})
+
+tryCatch({song_producer     <- song_wiki_scraper(song_wiki_link , 'Producer')},
+  error = function(e) {song_producer     <<- NA})
+
+#-------------------------------------------------------------------------------#
+# piece it all together into the song sample dataframe
+
+song_sample$song_wiki_link    <- song_wiki_link
+song_sample$song_single       <- song_single
+song_sample$song_isalbum      <- song_isalbum
+song_sample$song_isartist     <- song_isartist
+song_sample$song_released     <- song_released
+song_sample$song_genre        <- list(song_genre)
+song_sample$song_label        <- list(song_label)
+song_sample$song_songwriter   <- list(song_songwriter)
+song_sample$song_producer     <- list(song_producer)
+
+#-------------------------------------------------------------------------------#
+# append the data to the main dataframe and print progress update
+
+song_master <- rbind(song_master, song_sample)
+
+print(paste0('song recorded: ', song_artist_ID, ' #',
+   which(paste(song_artist$song_name, song_artist$artist_name) == song_artist_ID)))
+
+}
+
+#-------------------------------------------------------------------------------#
+
+```
+
+```{r Appendix Artist Web Scraping Code, eval = FALSE, include = FALSE}
+
+#-------------------------------------------------------------------------------#
+### initialization ###
+
+require(dplyr)
+require(rvest)
+require(stringr)
+require(sqldf)
+
+#-------------------------------------------------------------------------------#
+### web scraping function defined below ###
+
+# test links - used these to build out the web scraping logic
+
+# artist_wiki_link <- 'https://en.wikipedia.org/wiki/ASAP_Ferg'
+# artist_wiki_link <- 'https://en.wikipedia.org/wiki/Chris_Webby'
+# artist_wiki_link <- 'https://en.wikipedia.org/wiki/Kream'
+# artist_wiki_link <- 'https://en.wikipedia.org/wiki/Nina_Sky_(album)'
+# artist_wiki_link <- 'https://en.wikipedia.org/wiki/Psychotic_Reaction_(album)'
+
+#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
+
+artist_wiki_scraper <- function(artist_wiki_link, artist_info_part) {
+
+#---------| read the web page based on the link that was input |----------------#
+
+artist_wiki_page <- read_html(artist_wiki_link)
+
+#------| return a list of all of the pieces of the infobox table |--------------#
+
+iteration1  <-
+artist_wiki_page          %>%
+html_nodes('.plainlist')  %>%
+html_children()           %>%
+html_children()
+
+#------| filter the list down just to the piece that contains the input |-------#
+
+iteration2 <-
+  iteration1[which(
+    grepl(artist_info_part, iteration1))]
+  
+#------| special case: if iteration2 has more than 1 element |------------------#
+
+# does iteration2 contain more than one element?
+testlength <- ifelse(
+  length(iteration2) > 1,
+    TRUE, FALSE)
+
+# if yes, are the elements the same or are they different?
+testunique <- ifelse(
+  testlength == TRUE &
+  length(unique(as.character(iteration2))) == 1,
+    TRUE, FALSE)
+
+# if they are the same, just take the first element
+iteration2 <- if (testunique == TRUE) {
+  iteration2[1]} else {iteration2}
+
+# if they are not the same, does one of them have a seperated hlist?
+# if yes, take that one, otherwise just take the first element
+iteration2 <- if (testunique == FALSE & testlength == TRUE) {
+  if (max(TRUE %in% grepl('hlist-separated', iteration2))) {
+    iteration2[which(grepl('hlist-separated', iteration2))]} else {
+      iteration2[1]}} else {
+        iteration2}
+
+#------| check if iteration2 is nested with more than one |---------------------#
+
+# if there is a seperated hlist, then it is nested
+tryCatch({
+testnested <- ifelse(
+  max(grepl('hlist-separated', iteration2)), TRUE, FALSE)}, warning = function(e) {
+    testnested <<- FALSE})
+
+# special case: sometimes it is nested without a seperated hlist
+testnested2 <- ifelse(
+  testnested == FALSE &
+  length(unique(unlist(str_locate_all(iteration2 %>% html_text(), '\\n')))) > 1,
+    TRUE, FALSE)
+
+#-----------------------| drill down into the next level |----------------------#
+
+iteration3 <- 
+  iteration2 %>%
+  html_children()
+
+#-----------------| ilter it down to just the piece that we need |--------------#
+
+iteration4 <-
+  iteration3[which(
+    grepl('hlist', iteration3))]
+
+#----------| parse the final result dependent on several logical tests|---------#
+
+iteration5 <-
+  
+  # if it was hidden nested, drill down 2 layers then get text
+  
+  if (testnested2 == TRUE)  {
+         iteration4       %>%
+         html_children()  %>%
+         html_children()  %>%
+         html_text()        }   else if (
+  
+  # if it was not nested, no drill down necessary just get text
+           
+      testnested == FALSE) {
+         iteration4       %>%
+         html_text()        }   else    {
+
+  # if it was nested but not hidden nested, drill down 3 layers then get text
+           
+        iteration4        %>%
+        html_children()   %>%
+        html_children()   %>%
+        html_children()   %>%
+        html_text()         }
+
+#-------------------| clean up the result as needed |---------------------------#
+
+# get rid of (s) where it exists. no effect if it doesn't exist.
+# for example, sometimes there is songwriter or songwriter(s)
+
+iteration5 <-
+  trimws(gsub('\\(s\\)', '', iteration5))
+
+#-------------------------------------------------------------------------------#
+
+return(iteration5)
+}
+
+#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
+
+#-------------------------------------------------------------------------------#
+# initialize empty artist master. Each record will be appended here.
+
+artist_T <- unique(as.data.frame(cbind('song_artist' = song_artist[,2])))
+
+artist_master <- data.frame()
+
+#-------------------------------------------------------------------------------#
+# initialize the for loop. Currently testing on 50 iterations.
+
+for (artist_ID in artist_T$song_artist) {
+
+#-------------------------------------------------------------------------------#
+# initialize variables. Everything starts off as NA - values assigned later
+
+artist_wiki_link    <- NA
+artist_born         <- NA
+artist_origin       <- NA
+artist_yearsactive  <- NA
+artist_genre        <- NA
+artist_label        <- NA
+
+#-------------------------------------------------------------------------------#
+# dynamically create the google search link
+
+artist_search_text <- paste(artist_ID, 'Wikipedia')
+artist_search_text <- gsub(' ', '+', artist_search_text) %>% trimws()
+artist_google_link <- paste0("https://www.google.com/search?q=", artist_search_text)
+
+#-------------------------------------------------------------------------------#
+# attempt to retrieve wikipedia link from google search
+
+# read the first page of google search
+skiptonext <- FALSE
+tryCatch({
+  
+google_search_page <- read_html(artist_google_link)
+
+# this is a list of links on google page
+google_search_result <-
+  (google_search_page    %>%
+  html_nodes('body')     %>%
+  html_children()) [2]   %>%
+  html_children()        %>%
+  html_nodes('a')        %>%
+  html_attr('href')},
+
+error = function(e) {skiptonext <<- TRUE})
+
+if (skiptonext) { #----------------------
+artist_sample$artist_wiki_link    <- NA
+artist_sample$artist_born         <- NA
+artist_sample$artist_origin       <- NA
+artist_sample$artist_yearsactive  <- NA
+artist_sample$genre               <- NA
+artist_sample$label               <- NA
+
+print(paste0('artist skipped: ', artist_ID, ' #',
+   which(artist_T$song_artist == artist_ID)))}
+
+if (skiptonext) {next} #----------------
+
+# parse the list of links for the wiki link
+# if the wiki link is there, this is reliable
+# if its not there, might return incorrect link
+# if its incorrect, program will realize it later
+skiptonext <- FALSE
+google_search_result <- 
+  google_search_result[which(
+    ! grepl('search?', google_search_result) &
+    ! grepl('maps'   , google_search_result) &
+      grepl('url?'   , google_search_result) &
+      grepl('wiki'   , google_search_result))] [1]
+if (is.na(google_search_result)) {skiptonext <<- TRUE}
+if (skiptonext) {next}
+
+# the link is buried between two characters
+# the first character is the first '=' sign of the string
+parseresultstart <-
+  unique(unlist(str_locate_all(google_search_result, '='))) [1] + 1
+
+# the second character is the first '&' sign of the string
+parseresultend <-
+  unique(unlist(str_locate_all(google_search_result, '&'))) [1] - 1
+
+# extract the link by the text between the '=' and the '&'
+artist_wiki_link <-
+  substr(google_search_result, parseresultstart, parseresultend)
+
+# special case: if there is an apostrophe in the link,
+# it gets encoded as '%27'. The '%', however, is
+# also encoded as '%25'. Decode '%25' to '%' for it to work.
+artist_wiki_link <-
+  gsub('\\%25', '\\%', artist_wiki_link)
+
+artist_sample <- data.frame(cbind('artist_wiki_link' = artist_wiki_link,
+                                'artist_id' = artist_ID))
+
+#-------------------------------------------------------------------------------#
+# read the page, if error, everything NA and skip to next loop iteration
+
+skiptonext <- FALSE
+tryCatch({
+  artist_wiki_page <- 
+    read_html(artist_wiki_link)},
+error = function(e) {
+  skiptonext <<- TRUE})
+
+if (skiptonext) { #----------------------
+artist_sample$artist_wiki_link    <- NA
+artist_sample$artist_born         <- NA
+artist_sample$artist_origin       <- NA
+artist_sample$artist_yearsactive  <- NA
+artist_sample$artist_genre        <- NA
+artist_sample$artist_label        <- NA
+
+print(paste0('artist skipped: ', artist_ID, ' #',
+   which(artist_T$song_artist == artist_ID)))}
+
+if (skiptonext) {next} #----------------
+
+#-------------------------------------------------------------------------------#
+# attempt to scrape the info box, 
+
+infoboxskip <- FALSE
+tryCatch(                   {
+  artist_table_infobox        <-
+    (artist_wiki_page          %>%
+    html_nodes('.plainlist')) [1] %>%
+    html_table() %>%
+    .[[1]]                  },
+error = function(e)         {
+  artist_table_infobox   <<- NA
+  infoboxskip <<- TRUE})
+
+if (infoboxskip) {
+tryCatch(                   {
+  artist_table_infobox        <-
+    (artist_wiki_page          %>%
+    html_nodes('.vcard')) [1] %>%
+    html_table() %>%
+    .[[1]]                  },
+error = function(e)         {
+  artist_table_infobox   <<- NA})}
+    
+#-------------------------------------------------------------------------------#
+# retrieve information from the infobox node
+
+# standardize to lower case
+tryCatch({
+lowercase_artist_info <- c()
+for (element in artist_table_infobox[,1]) {
+newelement <- tolower(element)
+lowercase_artist_info <- c(lowercase_artist_info, newelement)}
+new_artist_table_infobox <- data.frame(cbind('X1' = lowercase_artist_info, 'X2' = artist_table_infobox[,2]))
+}, error = function(e) {new_artist_table_infobox <<- NA})
+
+# when the artist was born
+tryCatch({
+  artist_born <- as.character(
+    new_artist_table_infobox[which(
+      new_artist_table_infobox[,1] == 'born'), 2]) },
+error = function(e) {
+  artist_born <<- NA})
+
+# where the artist was born
+tryCatch({
+  artist_origin <- as.character(
+    new_artist_table_infobox[which(
+      new_artist_table_infobox[,1] == 'origin'), 2]) },
+error = function(e) {
+  artist_origin <<- NA})
+
+# years the artist has been active
+tryCatch({
+  artist_yearsactive <- as.character(
+    new_artist_table_infobox[which(grepl('years',
+      new_artist_table_infobox[,1])), 2]) },
+error = function(e) {
+  artist_yearsactive <<- NA})
+
+tryCatch({artist_genre        <- artist_wiki_scraper(artist_wiki_link, 'Genre')},
+  error = function(e) {artist_genre        <<- NA})
+
+if (length(artist_genre) == 0) {
+  
+    tryCatch({
+    artist_genre <- as.character(
+      new_artist_table_infobox[which(grepl('genre',
+        new_artist_table_infobox[,1])), 2]) },
+  error = function(e) {
+    artist_genre <<- NA})}
+
+tryCatch({artist_label        <- artist_wiki_scraper(artist_wiki_link, 'Label')},
+  error = function(e) {artist_label        <<- NA})
+
+if (length(artist_label) == 0) {
+  
+    tryCatch({
+    artist_label <- as.character(
+      new_artist_table_infobox[which(grepl('label',
+        new_artist_table_infobox[,1])), 2]) },
+  error = function(e) {
+    artist_label <<- NA})}
+
+#-------------------------------------------------------------------------------#
+# piece it all together into the song sample dataframe
+
+tryCatch({artist_sample$artist_wiki_link    <- artist_wiki_link}, error = function(e) {artist_sample$artist_wiki_link    <<- NA})
+tryCatch({artist_sample$artist_born     <- artist_born }, error = function(e) {artist_sample$artist_born     <<- NA})
+tryCatch({artist_sample$artist_origin    <- artist_origin}, error = function(e) {artist_sample$artist_origin    <<- NA})
+tryCatch({artist_sample$artist_yearsactive    <- artist_yearsactive}, error = function(e) {artist_sample$artist_yearsactive    <<- NA})
+tryCatch({artist_sample$artist_genre    <- list(artist_genre)}, error = function(e) {artist_sample$artist_genre    <<- NA})
+tryCatch({artist_sample$artist_label    <- list(artist_label)}, error = function(e) {artist_sample$artist_label    <<- NA})
+
+#-------------------------------------------------------------------------------#
+# append the data to the main dataframe and print progress update
+
+artist_master <- rbind(artist_master, artist_sample)
+
+print(paste0('artist recorded: ', artist_ID, ' #',
+   which(artist_T$song_artist == artist_ID)))
+
+}
+
+```
+
+```{r Appendix Song and Artist Info Clean Up, eval = FALSE, include = FALSE}
+
+#-------------------------------------------------------------------------------#
+### initialization ###
+
+require(dplyr)
+require(rvest)
+require(stringr)
+require(sqldf)
+
+#-------------------------------------------------------------------------------#
+
+# clean up the environment
+
+rm(google_search_page, song_wiki_page, google_search_result, parseresultend,
+parseresultstart, skiptonext, song_artist_test, song_genre, song_google_link,
+song_isalbum, song_isartist, song_label, song_producer, song_released, song_search_text,
+song_single, song_songwriter, song_table_infobox, song_wiki_link, song_sample, song_artist_ID)
+
+#-------------------------------------------------------------------------------#
+# eliminate anything that came out in brackets/parentheses
+
+song_master$song_released <- gsub("\\(.*?)", "", song_master$song_released)
+song_master$song_released <- gsub("\\[.*?]", "", song_master$song_released)
+
+#-------------------------------------------------------------------------------#
+# create a function to extract the month from the date
+
+date_parse_month <- function(x, month3dig, month2dig) {
+  
+  tryCatch({
+    month <- if (grepl(month3dig, x)) {month2dig} else {NA}},
+  error = function(e) {month <<- NA})
+  
+return(month)
+}
+
+#-------------------------------------------------------------------------------#
+# create a seperate column for whether the month is recognized
+# this is because some songs had a second or third release
+
+song_master$song_release_jan <- unlist(lapply(song_master$song_released, FUN = date_parse_month, month3dig = 'Jan', month2dig = '01'))
+song_master$song_release_feb <- unlist(lapply(song_master$song_released, FUN = date_parse_month, month3dig = 'Feb', month2dig = '02'))
+song_master$song_release_mar <- unlist(lapply(song_master$song_released, FUN = date_parse_month, month3dig = 'Mar', month2dig = '03'))
+song_master$song_release_apr <- unlist(lapply(song_master$song_released, FUN = date_parse_month, month3dig = 'Apr', month2dig = '04'))
+song_master$song_release_may <- unlist(lapply(song_master$song_released, FUN = date_parse_month, month3dig = 'May', month2dig = '05'))
+song_master$song_release_jun <- unlist(lapply(song_master$song_released, FUN = date_parse_month, month3dig = 'Jun', month2dig = '06'))
+song_master$song_release_jul <- unlist(lapply(song_master$song_released, FUN = date_parse_month, month3dig = 'Jul', month2dig = '07'))
+song_master$song_release_aug <- unlist(lapply(song_master$song_released, FUN = date_parse_month, month3dig = 'Aug', month2dig = '08'))
+song_master$song_release_sep <- unlist(lapply(song_master$song_released, FUN = date_parse_month, month3dig = 'Sep', month2dig = '09'))
+song_master$song_release_oct <- unlist(lapply(song_master$song_released, FUN = date_parse_month, month3dig = 'Oct', month2dig = '10'))
+song_master$song_release_nov <- unlist(lapply(song_master$song_released, FUN = date_parse_month, month3dig = 'Nov', month2dig = '11'))
+song_master$song_release_dec <- unlist(lapply(song_master$song_released, FUN = date_parse_month, month3dig = 'Dec', month2dig = '12'))
+
+#-------------------------------------------------------------------------------#
+# add a column for which records have multiple months and which do not
+monthcount <- c()
+for (rownumber in seq(1, dim(song_master) [1] )) {
+  count <- 0
+  for (element in song_master[rownumber, 11:(dim(song_master) [2] )]) {
+    count <- count + ! is.na(element)
+  }
+  monthcount <- c(monthcount, count)
+}
+song_master$monthcount <- monthcount   
+
+# show the count of records for each count of months
+# the large majority have one. 3 and 4 were very uncommon.
+table(song_master$monthcount)
+
+#-------------------------------------------------------------------------------#
+# extract the month that we want to use for the song release month
+# for the ones with more than one date, take the first one
+# this will be considered the 'original' song release date
+
+monthextract <- c()
+for (rownumber in seq(1, dim(song_master) [1] )) {
+  targetcolumnposition <- which(! is.na(song_master[rownumber, 11:((dim(song_master) [2] ) - 1)])) [1]
+  targetcolumnposition <- ifelse(is.na(targetcolumnposition), NA, targetcolumnposition)
+  targetcolumnvalue <- ifelse(is.na(targetcolumnposition), NA, song_master[rownumber, targetcolumnposition+10])
+  monthextract <- c(monthextract, targetcolumnvalue)}
+song_master$song_release_month <- monthextract
+  
+# show how many songs there are for each month
+table(song_master$song_release_month)
+
+# remove all of the columns that are no longer needed
+song_master <- song_master[, -c(11:23)]
+
+#-------------------------------------------------------------------------------#
+# extract the year and date from the song release date
+
+dayyearnumbers <- c()
+for (rownumber in seq(1, dim(song_master) [1] )) {
+  for (element in song_master[rownumber, 6]) {
+    separatedtext <- as.numeric(str_split(element, "") %>% .[[1]])
+    seperatedtext <- which(! is.na(separatedtext))
+    newseparatedtext <- c()
+      for (textelement in separatedtext) {
+        newseparatedtext <- paste0(newseparatedtext, textelement)}
+        newseparatedtext <- trimws(gsub('NA', '', newseparatedtext))
+        dayyearnumbers <- c(dayyearnumbers, newseparatedtext)
+  }
+}
+
+song_master$song_release_year <- dayyearnumbers
+
+song_master$song_release_year <- substr(
+  song_master$song_release_year,
+  nchar(song_master$song_release_year) - 3,
+  nchar(song_master$song_release_year))
+
+song_master[which(song_master$song_release_year == ''),
+            which(colnames(song_master) == 'song_release_year')] <- NA
+
+song_master$song_release_month <- as.numeric(song_master$song_release_month)
+song_master$song_release_year <- as.numeric(song_master$song_release_year)
+
+#-------------------------------------------------------------------------------#
+# explore the song genres
+
+# create a seperate table where the work will be completed
+song_genre_extract <- song_master[, which(colnames(song_master) %in% c('song_id', 'song_genre'))]
+
+# create a unique list of all of the genres
+unique_genre_list <- c()
+
+  for (rownumber in seq(1, dim(song_genre_extract) [1] )) {
+    for (element in song_genre_extract[rownumber, 2]) {
+      unique_genre_list <- c(unique_genre_list, element)}}
+
+#get rid of brackets and make it unique
+unique_genre_list <- gsub("\\[.*?]", "", unique_genre_list)
+unique_genre_list <- tolower(unique_genre_list)
+unique_genre_list <- unique(unique_genre_list)
+
+# further extract each individual genre
+# each genre should be a single word
+new_unique_genre_list <- c()
+
+  for (rownumber in seq(1, length(unique_genre_list))) {
+    for (element in unique_genre_list[rownumber]) {
+      atomicelement <- str_split(element, ' ') %>% .[[1]]
+      new_unique_genre_list <- c(new_unique_genre_list, atomicelement)}}
+
+new_unique_genre_list <- unique(new_unique_genre_list)
+
+#-------------------------------------------------------------------------------#
+# extract the song genres
+# the parent genre will be selected out of the following
+# alternative, rock, metal, punk, pop, r&b, rap, jazz, blues, folk, country, electronic, other
+
+parent_genre_list <- c('alt', 'rock', 'metal', 'punk', 'pop', 'r&b',
+                       'rap', 'jazz', 'blues', 'folk', 'country', 'elect', 'other')
+
+# create a data frame for the parent genres
+genre_dataframe <- data.frame()
+
+  for (rownumber in seq(1, dim(song_genre_extract) [1] )) {
+    for (element in song_genre_extract[rownumber, 2]) {
+      newelement <- gsub("\\[.*?]", "", element)
+      newelement <- tolower(newelement)
+      genre_list <- c()
+      for (genre in parent_genre_list) {
+        check_genre <- tryCatch({ifelse(max(grepl(genre, newelement)), 1, 0)},
+                       warning = function(e) {check_genre <<- 0})
+        genre_list <- c(genre_list, check_genre)}
+      genre_dataframe <- rbind(genre_dataframe, genre_list)}}
+        
+song_genre_extract <- cbind(song_genre_extract, genre_dataframe)
+colnames(song_genre_extract) [3:15] <- parent_genre_list
+
+# fill in the values for the other column
+# if none of the parent genres were found, then it is considered to be other
+
+song_genre_extract$song_genre <- ifelse(song_genre_extract$song_genre == 'character(0)', NA, song_genre_extract$song_genre)
+song_genre_extract$other <- ifelse(rowSums(song_genre_extract[,3:14]) == 0, 1, 0)
+song_genre_extract$other <- ifelse(is.na(song_genre_extract$song_genre), 0, song_genre_extract$other)
+
+song_genre <- song_genre_extract
+rm(song_genre_extract)
+
+#-------------------------------------------------------------------------------#
+# create the song label dataframe
+# some songs have multiple labels, take only the top 3 labels
+
+song_label              <- song_master[, which(colnames(song_master) %in% c('song_id', 'song_label'))]
+song_label$song_label   <- ifelse(song_label$song_label == 'character(0)', NA, song_label$song_label)
+
+song_label_dataframe <- data.frame()
+  for (rownumber in seq(1, dim(song_label) [1] )) {
+    song_label_row <- c()
+    for (element in song_label[rownumber, 2]) {
+      song_label_row <- c(song_label_row, element)
+      song_label1 <- song_label_row[1]
+      song_label2 <- song_label_row[2]
+      song_label3 <- song_label_row[3]
+      song_label_matrix <- data.frame(cbind(
+        'label1' = song_label1,
+        'label2' = song_label2,
+        'label3' = song_label3))
+      song_label_dataframe <- rbind(song_label_dataframe, song_label_matrix)}}
+
+# standardize the text. get rid of anything in (), [], and change to lower case
+song_label_dataframe$label1 <- tolower(gsub("\\[.*?]", "", gsub("\\(.*?)", "", song_label_dataframe$label1)))
+song_label_dataframe$label2 <- tolower(gsub("\\[.*?]", "", gsub("\\(.*?)", "", song_label_dataframe$label2)))
+song_label_dataframe$label3 <- tolower(gsub("\\[.*?]", "", gsub("\\(.*?)", "", song_label_dataframe$label3)))
+
+# append to main
+song_label <- cbind(song_label, song_label_dataframe)
+
+# create a temporary dataframe to correct the records still separated by comma
+temp_label_dataframe <- song_label[which(grepl(',', song_label$label1)),]  # these are the records seperated by comma
+temp_label_dataframe$label1 <- gsub(' ', '', temp_label_dataframe$label1)  # remove spaces this will help with the next step
+
+# create a for loop to extract the comma separated labels
+temp_label1 <- c()
+temp_label2 <- c()
+temp_label3 <- c()
+for (temp_label in temp_label_dataframe$label1) {
+num_commas <- length(unique(unlist(str_locate_all(temp_label, ','))))
+comma_pos1 <- unique(unlist(str_locate_all(temp_label, ','))) [1]
+comma_pos2 <- unique(unlist(str_locate_all(temp_label, ','))) [2]
+split1 <- substr(temp_label, 1, comma_pos1 - 1)
+split2 <- ifelse(num_commas > 1, 
+                 substr(temp_label, comma_pos1 + 1, comma_pos2 - 1),
+                 substr(temp_label, comma_pos1 + 1, nchar(temp_label)))
+split3 <- substr(temp_label, comma_pos2 + 1, nchar(temp_label))
+temp_label1 <- c(temp_label1, split1)
+temp_label2 <- c(temp_label2, split2)
+temp_label3 <- c(temp_label3, split3)
+}
+
+# join the labels into the temporary dataframe
+temp_label_dataframe <- data.frame(cbind(temp_label_dataframe, temp_label1, temp_label2, temp_label3))
+temp_label_dataframe <- temp_label_dataframe[, c(1, 6, 7, 8)]
+
+# join the new labels into the main dataframe
+song_label <- left_join(song_label, temp_label_dataframe, on = 'song_id')
+song_label$label1 <- ifelse(is.na(song_label$temp_label1), song_label$label1, song_label$temp_label1)
+song_label$label2 <- ifelse(is.na(song_label$temp_label2), song_label$label2, song_label$temp_label2)
+song_label$label3 <- ifelse(is.na(song_label$temp_label3), song_label$label3, song_label$temp_label3)
+song_label <- song_label[, - which(colnames(song_label) %in% c('temp_label1', 'temp_label2', 'temp_label3'))]
+
+# clean up the environment
+rm(temp_label_dataframe, comma_pos1, comma_pos2, num_commas, split1, split2, split3,
+temp_label1, temp_label2, temp_label3, temp_label)
+
+#-------------------------------------------------------------------------------#
+# create the song songwriter dataframe
+# some songs have multiple songwriters, take only the top 3 songwriters
+
+song_songwriter                   <- song_master[, which(colnames(song_master) %in% c('song_id', 'song_songwriter'))]
+song_songwriter$song_songwriter   <- ifelse(song_songwriter$song_songwriter == 'character(0)', NA, song_songwriter$song_songwriter)
+
+song_songwriter_dataframe <- data.frame()
+  for (rownumber in seq(1, dim(song_songwriter) [1] )) {
+    song_songwriter_row <- c()
+    for (element in song_songwriter[rownumber, 2]) {
+      song_songwriter_row <- c(song_songwriter_row, element)
+      song_songwriter1 <- song_songwriter_row[1]
+      song_songwriter2 <- song_songwriter_row[2]
+      song_songwriter3 <- song_songwriter_row[3]
+      song_songwriter_matrix <- data.frame(cbind(
+        'songwriter1' = song_songwriter1,
+        'songwriter2' = song_songwriter2,
+        'songwriter3' = song_songwriter3))
+      song_songwriter_dataframe <- rbind(song_songwriter_dataframe, song_songwriter_matrix)}}
+
+# standardize the text. get rid of anything in (), [], and change to lower case
+song_songwriter_dataframe$songwriter1 <- tolower(gsub("\\[.*?]", "", gsub("\\(.*?)", "", song_songwriter_dataframe$songwriter1)))
+song_songwriter_dataframe$songwriter2 <- tolower(gsub("\\[.*?]", "", gsub("\\(.*?)", "", song_songwriter_dataframe$songwriter2)))
+song_songwriter_dataframe$songwriter3 <- tolower(gsub("\\[.*?]", "", gsub("\\(.*?)", "", song_songwriter_dataframe$songwriter3)))
+
+# append to main
+song_songwriter <- cbind(song_songwriter, song_songwriter_dataframe)
+
+# create a temporary dataframe to correct the records still separated by comma
+temp_songwriter_dataframe <- song_songwriter[which(grepl(',', song_songwriter$songwriter1)),]  # these are the records seperated by comma
+temp_songwriter_dataframe$songwriter1 <- gsub(' ', '', temp_songwriter_dataframe$songwriter1)  # remove spaces this will help with the next step
+
+# create a for loop to extract the comma separated songwriters
+temp_songwriter1 <- c()
+temp_songwriter2 <- c()
+temp_songwriter3 <- c()
+for (temp_songwriter in temp_songwriter_dataframe$songwriter1) {
+num_commas <- length(unique(unlist(str_locate_all(temp_songwriter, ','))))
+comma_pos1 <- unique(unlist(str_locate_all(temp_songwriter, ','))) [1]
+comma_pos2 <- unique(unlist(str_locate_all(temp_songwriter, ','))) [2]
+comma_pos3 <- unique(unlist(str_locate_all(temp_songwriter, ','))) [3]
+split1 <- substr(temp_songwriter, 1, comma_pos1 - 1)
+split2 <- ifelse(num_commas > 1, 
+                 substr(temp_songwriter, comma_pos1 + 1, comma_pos2 - 1),
+                 substr(temp_songwriter, comma_pos1 + 1, nchar(temp_songwriter)))
+split3 <- ifelse(num_commas > 2,
+                 substr(temp_songwriter, comma_pos2 + 1, comma_pos3 - 1),
+                 substr(temp_songwriter, comma_pos2 + 1, nchar(temp_songwriter)))
+temp_songwriter1 <- c(temp_songwriter1, split1)
+temp_songwriter2 <- c(temp_songwriter2, split2)
+temp_songwriter3 <- c(temp_songwriter3, split3)
+}
+
+# join the songwriters into the temporary dataframe
+temp_songwriter_dataframe <- data.frame(cbind(temp_songwriter_dataframe, temp_songwriter1, temp_songwriter2, temp_songwriter3))
+temp_songwriter_dataframe <- temp_songwriter_dataframe[, c(1, 6, 7, 8)]
+
+# join the new songwriters into the main dataframe
+song_songwriter <- left_join(song_songwriter, temp_songwriter_dataframe, on = 'song_id')
+song_songwriter$songwriter1 <- ifelse(is.na(song_songwriter$temp_songwriter1), song_songwriter$songwriter1, song_songwriter$temp_songwriter1)
+song_songwriter$songwriter2 <- ifelse(is.na(song_songwriter$temp_songwriter2), song_songwriter$songwriter2, song_songwriter$temp_songwriter2)
+song_songwriter$songwriter3 <- ifelse(is.na(song_songwriter$temp_songwriter3), song_songwriter$songwriter3, song_songwriter$temp_songwriter3)
+song_songwriter <- song_songwriter[, - which(colnames(song_songwriter) %in% c('temp_songwriter1', 'temp_songwriter2', 'temp_songwriter3'))]
+
+# clean up the environment
+rm(temp_songwriter_dataframe, comma_pos1, comma_pos2, num_commas, split1, split2, split3,
+temp_songwriter1, temp_songwriter2, temp_songwriter3, temp_songwriter, comma_pos3)
+
+#-------------------------------------------------------------------------------#
+# create the song producer dataframe
+# some songs have multiple producers, take only the top 3 producers
+
+song_producer                 <- song_master[, which(colnames(song_master) %in% c('song_id', 'song_producer'))]
+song_producer$song_producer   <- ifelse(song_producer$song_producer == 'character(0)', NA, song_producer$song_producer)
+
+song_producer_dataframe <- data.frame()
+  for (rownumber in seq(1, dim(song_producer) [1] )) {
+    song_producer_row <- c()
+    for (element in song_producer[rownumber, 2]) {
+      song_producer_row <- c(song_producer_row, element)
+      song_producer1 <- song_producer_row[1]
+      song_producer2 <- song_producer_row[2]
+      song_producer3 <- song_producer_row[3]
+      song_producer_matrix <- data.frame(cbind(
+        'producer1' = song_producer1,
+        'producer2' = song_producer2,
+        'producer3' = song_producer3))
+      song_producer_dataframe <- rbind(song_producer_dataframe, song_producer_matrix)}}
+
+# standardize the text. get rid of anything in (), [], and change to lower case
+song_producer_dataframe$producer1 <- tolower(gsub("\\[.*?]", "", gsub("\\(.*?)", "", song_producer_dataframe$producer1)))
+song_producer_dataframe$producer2 <- tolower(gsub("\\[.*?]", "", gsub("\\(.*?)", "", song_producer_dataframe$producer2)))
+song_producer_dataframe$producer3 <- tolower(gsub("\\[.*?]", "", gsub("\\(.*?)", "", song_producer_dataframe$producer3)))
+
+# append to main
+song_producer <- cbind(song_producer, song_producer_dataframe)
+
+# create a temporary dataframe to correct the records still separated by comma
+temp_producer_dataframe <- song_producer[which(grepl(',', song_producer$producer1)),]  # these are the records seperated by comma
+temp_producer_dataframe$producer1 <- gsub(' ', '', temp_producer_dataframe$producer1)  # remove spaces this will help with the next step
+
+# create a for loop to extract the comma separated producers
+temp_producer1 <- c()
+temp_producer2 <- c()
+temp_producer3 <- c()
+for (temp_producer in temp_producer_dataframe$producer1) {
+num_commas <- length(unique(unlist(str_locate_all(temp_producer, ','))))
+comma_pos1 <- unique(unlist(str_locate_all(temp_producer, ','))) [1]
+comma_pos2 <- unique(unlist(str_locate_all(temp_producer, ','))) [2]
+comma_pos3 <- unique(unlist(str_locate_all(temp_producer, ','))) [3]
+split1 <- substr(temp_producer, 1, comma_pos1 - 1)
+split2 <- ifelse(num_commas > 1, 
+                 substr(temp_producer, comma_pos1 + 1, comma_pos2 - 1),
+                 substr(temp_producer, comma_pos1 + 1, nchar(temp_producer)))
+split3 <- ifelse(num_commas > 2,
+                 substr(temp_producer, comma_pos2 + 1, comma_pos3 - 1),
+                 substr(temp_producer, comma_pos2 + 1, nchar(temp_producer)))
+temp_producer1 <- c(temp_producer1, split1)
+temp_producer2 <- c(temp_producer2, split2)
+temp_producer3 <- c(temp_producer3, split3)
+}
+
+# join the producers into the temporary dataframe
+temp_producer_dataframe <- data.frame(cbind(temp_producer_dataframe, temp_producer1, temp_producer2, temp_producer3))
+temp_producer_dataframe <- temp_producer_dataframe[, c(1, 6, 7, 8)]
+
+# join the new producers into the main dataframe
+song_producer <- left_join(song_producer, temp_producer_dataframe, on = 'song_id')
+song_producer$producer1 <- ifelse(is.na(song_producer$temp_producer1), song_producer$producer1, song_producer$temp_producer1)
+song_producer$producer2 <- ifelse(is.na(song_producer$temp_producer2), song_producer$producer2, song_producer$temp_producer2)
+song_producer$producer3 <- ifelse(is.na(song_producer$temp_producer3), song_producer$producer3, song_producer$temp_producer3)
+song_producer <- song_producer[, - which(colnames(song_producer) %in% c('temp_producer1', 'temp_producer2', 'temp_producer3'))]
+
+# clean up the environment
+rm(temp_producer_dataframe, comma_pos1, comma_pos2, num_commas, split1, split2, split3,
+temp_producer1, temp_producer2, temp_producer3, temp_producer, comma_pos3)
+
+#-------------------------------------------------------------------------------#
+# put all the pieces back together in a new song master
+
+song_master2 <- song_master[, c(2, 1, 3, 11, 12)]
+
+# clean up the environment
+rm(date_cleaning, genre_dataframe, song_label_dataframe, song_label_matrix, song_producer_dataframe,
+song_producer_matrix, song_songwriter_dataframe, song_songwriter_matrix, addelement, atomicelement,
+check_genre, checkelement, count, dayyearnumbers, element, genre, genre_list, getelement, month,
+monthcount, monthcounter, monthextract, new_unique_genre_list, newelement, newseparatedtext,
+nextelement, parent_genre_list, rownumber, seperatedtext, seperatedtext, song_label_row, song_label1,
+song_label2, song_label3, song_label4, song_label5, song_producer_row, song_producer1, song_producer2,
+song_producer3, song_songwriter_row, song_songwriter1, song_songwriter2, song_songwriter3, song_songwriter_row,
+song_targetcolumnposition, targetcolumnvalue, test, testing, textelement, unique_genre_list)
+
+#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
+#-------------------------------------------------------------------------------#
+### T_song_genre ###
+
+# change the album genre column names so that when it is joined
+# there is not ambiguity with the song genre column names
+colnames(album_genre) [3:15] <- paste0(colnames(album_genre) [3:15], '1')
+
+# join the album names to to the song genre
+song_genre <- unique(left_join(song_genre, data.frame(cbind('song_id' = paste(song_album[,1], song_album[,2]), 'album_id' =  paste(song_album[,2], song_album[,3]))), on = 'song_id'))
+
+# join the album genre to the song genre
+song_genre <- unique(left_join(song_genre, album_genre[, c(1, 3:15)], on = 'album_id'))
+
+# converge the values from the album genre where needed
+song_genre$alt <- ifelse( ! is.na(song_genre$alt1), song_genre$alt1, song_genre$alt)
+song_genre$rock <- ifelse( ! is.na(song_genre$rock1), song_genre$rock1, song_genre$rock)
+song_genre$metal <- ifelse( ! is.na(song_genre$metal1), song_genre$metal1, song_genre$metal)
+song_genre$punk <- ifelse( ! is.na(song_genre$punk1), song_genre$punk1, song_genre$punk)
+song_genre$pop <- ifelse( ! is.na(song_genre$pop1), song_genre$pop1, song_genre$pop)
+song_genre$`r&b` <- ifelse( ! is.na(song_genre$`r&b1`), song_genre$`r&b1`, song_genre$`r&b`)
+song_genre$rap <- ifelse( ! is.na(song_genre$rap1), song_genre$rap1, song_genre$rap)
+song_genre$jazz <- ifelse( ! is.na(song_genre$jazz1), song_genre$jazz1, song_genre$jazz)
+song_genre$blues <- ifelse( ! is.na(song_genre$blues1), song_genre$blues1, song_genre$blues)
+song_genre$folk <- ifelse( ! is.na(song_genre$folk1), song_genre$folk1, song_genre$folk)
+song_genre$country <- ifelse( ! is.na(song_genre$country1), song_genre$country1, song_genre$country)
+song_genre$elect <- ifelse( ! is.na(song_genre$elect1), song_genre$elect1, song_genre$elect)
+song_genre$other <- ifelse( ! is.na(song_genre$other1), song_genre$other1, song_genre$other)
+
+# drop the columns that were used for lookup
+T_song_genre <- unique(song_genre[, c(1, 3:15)])
+
+#-------------------------------------------------------------------------------#
+### T_song_label ###
+
+# change the album genre column names so that when it is joined
+# there is not ambiguity with the song genre column names
+colnames(album_label) [3:5] <- paste0(colnames(album_label) [3:5], '1')
+
+# join the album names to to the song genre
+song_label <- unique(left_join(song_label, data.frame(cbind('song_id' = paste(song_album[,1], song_album[,2]), 'album_id' =  paste(song_album[,2], song_album[,3]))), on = 'song_id'))
+
+# join the album genre to the song genre
+song_label <- unique(left_join(song_label, album_label[, c(1, 3:5)], on = 'album_id'))
+
+# converge the values from the album genre where needed
+song_label$label1 <- ifelse( ! is.na(song_label$label11), song_label$label11, song_label$label1)
+song_label$label2 <- ifelse( ! is.na(song_label$label21), song_label$label21, song_label$label2)
+song_label$label3 <- ifelse( ! is.na(song_label$label31), song_label$label31, song_label$label3)
+
+# drop the columns that were used for lookup
+T_song_label <- unique(song_label[, c(1, 3:5)])
+
+#-------------------------------------------------------------------------------#
+### T_song_producer ###
+
+# change the album genre column names so that when it is joined
+# there is not ambiguity with the song genre column names
+colnames(album_producer) [3:5] <- paste0(colnames(album_producer) [3:5], '1')
+
+# join the album names to to the song genre
+song_producer <- unique(left_join(song_producer, data.frame(cbind('song_id' = paste(song_album[,1], song_album[,2]), 'album_id' =  paste(song_album[,2], song_album[,3]))), on = 'song_id'))
+
+# join the album genre to the song genre
+song_producer <- unique(left_join(song_producer, album_producer[, c(1, 3:5)], on = 'album_id'))
+
+# converge the values from the album genre where needed
+song_producer$producer1 <- ifelse( ! is.na(song_producer$producer11), song_producer$producer11, song_producer$producer1)
+song_producer$producer2 <- ifelse( ! is.na(song_producer$producer21), song_producer$producer21, song_producer$producer2)
+song_producer$producer3 <- ifelse( ! is.na(song_producer$producer31), song_producer$producer31, song_producer$producer3)
+
+# drop the columns that were used for lookup
+T_song_producer <- unique(song_producer[, c(1, 3:5)])
+
+#-------------------------------------------------------------------------------#
+### T_song_master ###
+
+# create the data frame from the song master
+T_song_master <- song_master2
+
+# join the album names to to the song genre
+T_song_master <- unique(left_join(T_song_master, data.frame(cbind('song_id' = paste(song_album[,1], song_album[,2]), 'album_id' =  paste(song_album[,2], song_album[,3]))), on = 'song_id'))
+
+# join the album genre to the song genre
+T_song_master <- unique(left_join(T_song_master, album_master[, c(2, 7:8)], on = 'album_id'))
+
+# change album release dates to numberic to align with song release dates
+T_song_master$album_release_month <- as.numeric(T_song_master$album_release_month)
+T_song_master$album_release_year <- as.numeric(T_song_master$album_release_year)
+
+# converge the values from the album genre where needed
+T_song_master$song_release_month <- ifelse( ! is.na(T_song_master$album_release_month), T_song_master$album_release_month, T_song_master$song_release_month)
+T_song_master$song_release_year <- ifelse( ! is.na(T_song_master$album_release_year), T_song_master$album_release_year, T_song_master$song_release_year)
+
+# drop the columns that were used for lookup
+T_song_master <- unique(T_song_master[, c(1:2, 3:5)])
+
+#-------------------------------------------------------------------------------#
+### T_song_songwriter ###
+
+# create the data frame from the song master
+T_song_songwriter <- song_songwriter[, c(1, 3:5)]
+
+#-------------------------------------------------------------------------------#
+### filter down the results to minimize the number of nulls ###
+
+# remove NA's
+T_song_master <- T_song_master[which( ! is.na(T_song_master$song_release_year)),] 
+
+```
