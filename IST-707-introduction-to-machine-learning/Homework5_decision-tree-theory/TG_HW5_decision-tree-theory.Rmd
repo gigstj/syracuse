@@ -1,0 +1,230 @@
+---
+title: "IST 707 Homework 5"
+output:
+  word_document: default
+---
+
+Due Date: 5/19/2021
+
+# Introduction
+
+As a continuation of the previous report, this report will attempt to solve
+the mystery of the federalist papers using decision tree methodology. To recap,
+the previous report concluded that Madison was likely to be the author. There was
+still conflicting evidence, however.
+
+Hopefully the decision tree model will help to clear up the uncertainty.
+The following report will train a decision tree model based on the papers that
+where the authors are known. After the model is trained, it will test on a smaller
+portion of the papers where the author is known. The model will be put into
+production and used on the disputed papers.
+
+```{r include = FALSE}
+
+require(readr)
+require(caret)
+require(C50)
+require(rpart)
+require(rpart.plot)
+require(rattle)
+
+```
+
+```{r Initial Data Preparation, include = FALSE}
+
+# load the fedpapers original dataset
+
+fedpapersorig <- read_csv("fedPapers85.csv")
+
+# remove column 2, this is not needed
+
+fedpapersorig <- fedpapersorig[, -2]
+
+# seperate a dataset with just the disp papers
+
+fedpapersdisp <- fedpapersorig[which(
+  fedpapersorig$author == 'dispt'), ]
+
+# seperate a dataset with just Ham and Mad
+
+fedpaperssplit <- fedpapersorig[which(
+  fedpapersorig$author %in% c('Hamilton', 'Madison')), ]
+
+# change Ham to 0 and Mad to 1
+
+fedpaperssplit[which(fedpaperssplit$author == 'Hamilton'), 1] <- '0'
+fedpaperssplit[which(fedpaperssplit$author == 'Madison'), 1] <- '1'
+
+# change the author to a factor data type
+
+fedpaperssplit$author <- as.factor(fedpaperssplit$author)
+
+```
+
+# Data Preparation
+
+The following code was used to split the data into training and testing.
+Essentially my logic was that the ratio of the papers by Hamilton and
+Madison needs to remain the same in both the training and testing sets.
+This is due to the fact that there were more papers written by Hamilton,
+so without taking that into consideration the training data could be biased.
+
+```{r Training / Test Split}
+
+# split off the testing and training
+# keeping an even ratio of each author
+
+set.seed(266)
+
+# split hamilton papers
+
+hamtemp    <- fedpaperssplit[which(fedpaperssplit$author == '0'), ]
+hamsamp    <- createDataPartition(hamtemp$author, p = 0.80, list= FALSE)
+
+hamtrain   <- hamtemp[hamsamp, ]
+hamtest    <- hamtemp[-hamsamp, ]
+
+# split madison papers
+
+madtemp    <- fedpaperssplit[which(fedpaperssplit$author == '1'), ]
+madsamp    <- createDataPartition(madtemp$author, p = 0.80, list= FALSE)
+
+madtrain   <- madtemp[madsamp, ]
+madtest    <- madtemp[-madsamp, ]
+
+# join them back together
+
+fedpaperstrain   <- rbind(hamtrain, madtrain)
+fedpaperstest    <- rbind(hamtest, madtest)
+
+# clean up the environment
+
+rm(hamsamp, hamtemp, hamtest, hamtrain, 
+   madsamp, madtemp, madtest, madtrain)
+
+```
+
+# Model 1
+
+```{r C5.0 Tree Model}
+
+# implement the C5.0 decision tree model
+
+fedpaperstree1 <- C5.0(author ~ ., data = fedpaperstrain)
+
+fedpaperspredictions1 <- predict(fedpaperstree1, fedpaperstest)
+
+# show the results of the tree model
+
+summary(fedpaperstree1)
+
+plot(fedpaperstree1, main = paste('Accuracy = ', round(mean(fedpaperstest$author == fedpaperspredictions1) * 100, 2), '%'))
+
+```
+
+According to the first decision tree model, the word upon is the key
+distinguisher of which author wrote the paper. If the frequency was
+less than 0.018, then the author would be Madison, otherwise the
+author would be Hamilton. This is in line with the results from the
+previous report.
+
+# Model 2
+
+```{r}
+
+# implement the rpart decision tree model
+
+fedpaperstree2 <- rpart(author ~ ., data = fedpaperstrain, method = "class")
+
+fedpaperspredictions2 <- predict(fedpaperstree2, fedpaperstest, type = "class")
+
+# show the results of the tree model
+
+summary(fedpaperstree2)
+
+fancyRpartPlot(fedpaperstree2, main = paste('Accuracy = ', round(mean(fedpaperstest$author == fedpaperspredictions2) * 100, 2), '%'))
+
+```
+
+Using a different package to create a second decision tree model, I got
+the same results as the first package. The model seems to be having a
+difficult time getting past the word upon. I would be interested to see
+what would happen if this was removed from the training data and
+try to run the model again.
+
+# Model 3
+
+```{r}
+
+# create new train / test data without upon
+
+nouponfedtrain <- fedpaperstrain[, -which(colnames(fedpaperstrain) == 'upon')]
+
+nouponfedtest <- fedpaperstest[, -which(colnames(fedpaperstest) == 'upon')]
+
+# implement the rpart decision tree model
+
+fedpaperstree3 <- rpart(author ~ ., data = nouponfedtrain, method = "class", control=rpart.control(minsplit=3, cp=0))
+
+fedpaperspredictions3 <- predict(fedpaperstree3, nouponfedtest, type = "class")
+
+# show the results of the tree model
+
+summary(fedpaperstree3)
+
+fancyRpartPlot(fedpaperstree3, main = paste('Accuracy = ', round(mean(nouponfedtest$author == fedpaperspredictions3) * 100, 2), '%'))
+
+```
+
+The model accuracy went down a lot, but there is some useful insight here.
+The next most important word that distinguishes the author is 'there'.
+Some other words that are important are 'on', 'to', 'by', 'and', 'any',
+It is very interesting that the word 'an' was not as important however
+it is used as the third node in the decision tree model.
+
+# Deploy
+
+```{r}
+
+# apply the model to the disputed papers
+
+fedpaperspredictionsDISP <- predict(fedpaperstree1, fedpapersdisp, type = "class")
+
+# substitute in the predicted author
+
+fedpapersdisp$author <- fedpaperspredictionsDISP
+
+fedpapersdisp$author <- ifelse(fedpapersdisp$author == '1', 'Madison', 'Hamilton')
+
+```
+
+```{r}
+
+# here are the disputed papers with key words
+
+fedpapersdisp[, c(1, which(colnames(fedpapersdisp) %in% c('upon', 'there', 'an')))]
+
+```
+
+# Conclusion
+
+Overall, the results were in line with my conclusions from the previous report,
+which was that Madison wrote the papers because the word upon is not
+frequently used in the disputed papers. Although this provides some additional
+support, it does not give the full clarity needed to confirm who the author
+of the disputed papers is.
+
+Even the best decision tree model was not able to be 100% accurate on the
+training data. There was one paper in the testing data that was not
+correctly classified. Without the model being 100% accurate, there is
+still some uncertainty.
+
+There also should not be any issue with over fitting with the decision tree model.
+This is because the data is a population dataset and not a sample dataset (i.e
+the entire collection of fed papers), it is probably ok that the model is over fitted.
+There will be no need to generalize the model to any future papers.
+
+In conclusion, I am more confident that Madison has written the disputed
+federalist papers, but again I am not certain if that is the case. To continue to
+try and solve this mystery, it would be interesting to gather outside data
+to see if would improve the models.
