@@ -1,0 +1,48 @@
+---
+output:
+  word_document: default
+  pdf_document: default
+---
+IST 687  
+Homework 2  
+Due Date: 10/19  
+
+**Step 1: What is the hp (hp stands for "horse power")**
+
+```{r}
+#Add mtcars dataset and name it myCars
+data(mtcars)
+myCars <- mtcars
+
+#What is the highest hp? Which car has the highest hp? create sorted dataframe based on hp.
+myCars_Sort_Descending_by_hp <- myCars[order(-myCars$hp),]
+head(myCars_Sort_Descending_by_hp,1)
+```
+
+**Step 2: Explore mpg (mpg stands for "miles per gallon")**  
+
+```{r}
+#what is the highest mpg? which car has the highest mpg? create sorted dataframe based on mpg.
+myCars_Sort_Descending_by_mpg <- myCars[order(-myCars$mpg),]
+head(myCars_Sort_Descending_by_mpg,1)
+```
+
+**Step 3: Which car has the "best" combination of mpg and hp?**  
+
+```{r}
+#add hp and mpg to determine best combination
+myCars$Best_Combination_Unweighted <- myCars$mpg + myCars$hp
+myCars_Sort_Descending_by_Best_Combination_Unweighted <- myCars[order(-myCars$Best_Combination_Unweighted),]
+head(myCars_Sort_Descending_by_Best_Combination_Unweighted,5)
+```
+
+**Step 4 Which car has "best" car combination of mpg and hp, where mpg and hp must be given equal weight?**
+
+```{r}
+#normalize then add hp and mpg to determine best combination
+myCars$mpg_relative_to_average <- myCars[,1]/mean(myCars[,1])
+myCars$hp_relative_to_average <- myCars[,4]/mean(myCars[,4])
+myCars$Best_Combination_Weighted <- myCars$mpg_relative_to_average + myCars$hp_relative_to_average
+myCars_Sort_Descending_by_Best_Combination_Weighted <- myCars[order(-myCars$Best_Combination_Weighted),]
+head(myCars_Sort_Descending_by_Best_Combination_Weighted,1)
+```
