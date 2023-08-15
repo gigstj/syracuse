@@ -4,7 +4,7 @@ https://www.linkedin.com/in/chadondata/<br><br>
 
 Date of course start and finish
 
-9/25/2020 - 12/17/2020<br><br>
+09/25/2020 - 12/17/2020<br><br>
 
 Course description reference link
 
