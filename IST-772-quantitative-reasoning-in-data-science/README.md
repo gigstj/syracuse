@@ -4,7 +4,7 @@ https://www.linkedin.com/in/jasonanastasopoulos/<br><br>
 
 Date of course start and finish
 
-06-30-2021 - 09/20/2021<br><br>
+06/30/2021 - 09/20/2021<br><br>
 
 Course description reference link
 
