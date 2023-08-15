@@ -1,0 +1,73 @@
+---
+output:
+  word_document: default
+  pdf_document: default
+---
+IST 687  
+Homework 8  
+Due Date: 11/30   
+
+**Code requires the following packages to run**
+
+```{r}
+library(gdata) #install.packages('gdata')
+library(readxl) #install.pacakges('readxl')
+```
+
+**Read in data from the following URL**
+
+```{r}
+#read in dataset (saved local file)
+raw_data_url <- "http://college.cengage.com/mathematics/brase/understandable_statistics/7e/students/datasets/mlr/excel/mlr01.xls"
+raw_data_temp <- tempfile()
+download.file(raw_data_url, raw_data_temp, mode="wb")
+raw_data <- read_excel(path=raw_data_temp)
+str(raw_data)
+colnames(raw_data) <- c("BabyFawn", "AdultAntelope", "Precipitation", "Winter")
+```
+
+**Create bivariate plots**
+
+```{r}
+#number of baby fawns versus adult antelope population
+plot(raw_data$AdultAntelope, raw_data$BabyFawn, xlab="Adult Antelope Population", ylab = "Number of Fawns")
+
+#number of baby fawns versus annual precipitation
+plot(raw_data$Precipitation, raw_data$BabyFawn, xlab="Annual Precipitation", ylab = "Number of Fawns")
+
+#number of baby fawns versus severity of winter
+plot(raw_data$Winter, raw_data$BabyFawn, xlab="Severity of Winter", ylab = "Number of Fawns")
+```
+
+**first regression model**
+
+```{r}
+model1 <- lm(formula=BabyFawn ~ Winter, data=raw_data)
+summary(model1)
+```
+
+**Second regression model**
+
+```{r}
+model2 <- lm(formula=BabyFawn ~ Winter + Precipitation, data=raw_data)
+summary(model2)
+```
+
+**Third regression model**
+
+```{r}
+model3 <- lm(formula=BabyFawn ~ Winter + Precipitation + AdultAntelope, data=raw_data)
+summary(model3)
+```
+
+**Which model works the best?**
+
+The third model works the best at predicting the baby fawns because it has the last amount of residual standard error. It can also be noted that it has the highest R2 value at .9743 which says that there is a very strong correlation between the independent variables (the combination of severity of winter, annual precipitation, and adult antelope population) and the dependent variable (number of baby fawns). 
+
+**Which of the predictors are statistically significant in each model?**
+
+The benchmark for statistical significance is .05 in other words anything with a Pr(>|t|) of less than .05 is considered to be statistically significant. In this case, all of the predictors are statistically significant in each model because they are less than .05.
+
+**What would the most parsimonious model contain?**
+
+I would say that the second model because it only uses 2 independent variables but produces a result that is only off by about .1 more fawns that the third model that uses 3 independent variables. This model used the severity of winter and annual precipitation to predict the number of baby fawns. I also think this could be better because estimating the population of adult antelope is based on statistical inference itself whereas the winter and annual precipitation are more objective measures. 
