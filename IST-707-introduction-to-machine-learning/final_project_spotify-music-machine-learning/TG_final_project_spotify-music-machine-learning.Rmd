@@ -4,8 +4,6 @@ output:
 ---
 ## Final Project Predicting Song Popularity
 
-By Annie Titus, Tyler Gigot, Daniel Stalica
-
 Syracuse University - IST 707 - Spring 2021
 
 https://www.kaggle.com/edalrami/19000-spotify-songs/discussion/73524
