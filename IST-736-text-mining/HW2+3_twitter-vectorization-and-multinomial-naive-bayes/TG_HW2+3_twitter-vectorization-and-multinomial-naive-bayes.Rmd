@@ -1,0 +1,496 @@
+---
+output:
+    html_document:
+        toc: true
+        toc_depth: 5
+        toc_float:
+            collapsed: FALSE
+            smooth_scroll: true
+        fig_height: 5
+        fig_width: 8
+        df_print: paged
+        code_folding: hide
+---
+
+<p>&nbsp;</p>
+
+#### **Configuration**
+
+<p>&nbsp;</p>
+
+<font size = "3">
+
+In this notebook, I will be using both R code and Python code in the RStudio IDE
+with the use of the reticulate package. Note there is some preparation required
+for this to work, including having Python installed, having the reticulate
+package in R installed, and setting up the virtual environment properly. I have
+provided some of the references that helped me do this at the bottom of this
+document. In the following chunk of code, I am running an R command to check the
+connection to Python. If it is set up properly, the variables should be pointing
+to the correct files in my virtual environment.
+
+</font>
+
+```{r Configuration, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Check python configuration
+
+reticulate::py_config()
+
+```
+
+<p>&nbsp;</p>
+
+#### **Load Packages**
+
+<p>&nbsp;</p>
+
+```{r Load R Packages, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Load R packages
+
+library(rvest)
+library(dplyr)
+library(stringr)
+library(reticulate)
+library(httr)
+library(jsonlite)
+
+```
+
+```{python Load Python Packages, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Load Python packages
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import re as re
+import string as st
+import requests as rq
+import html5lib as html
+import tweepy as tw
+import nltk as nltk
+from textblob import TextBlob
+from bs4 import BeautifulSoup as bs
+from itertools import chain
+from PIL import Image
+from nltk.tokenize import TweetTokenizer
+from nltk.stem import PorterStemmer
+
+```
+
+<p>&nbsp;</p>
+
+#### **Get Player Performances**
+
+<p>&nbsp;</p>
+
+```{python PFR Root URL, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Pro football reference root url
+
+pfr_root = "https://www.pro-football-reference.com"
+
+```
+
+```{python Get Summary URL Function, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Define a function to get the week summary url
+
+def get_summary_url(year, week):
+    return pfr_root + "/years/" + str(year) + "/" + "week_" + str(week) + ".htm"
+
+```
+
+```{python Get Boxscore URL Function, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Define a function to get the boxscore urls
+
+def get_boxscore_url(summary_url, regexpattern):
+    page = rq.get(summary_url)
+    soup = bs(page.content, "html5lib")
+    table = soup.find("div", {"class": "game_summaries"})
+    urls = [re.findall(regexpattern, str(row)) for row in table]
+    urls = list(chain.from_iterable(urls))
+    return [pfr_root + url for url in urls]
+
+```
+
+```{python Get Boxscore URLs, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Use the functions to retrieve the boxscore urls
+
+boxscore_urls = get_boxscore_url(get_summary_url(2021, 7), "\/boxscores\/.*?htm")
+
+```
+
+```{r Get Starter Table Function, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Define a function to get a starter table
+
+get_starter_table <- function(boxscore_url, home_or_vis) {
+    page <- read_html(boxscore_url)
+    node <- paste0("#all_", home_or_vis, "_starters")
+    table <- page %>%
+        html_node("body") %>%
+        html_node(node) %>%
+        html_node(xpath = "comment()") %>%
+        html_text() %>%
+        read_html() %>%
+        html_table() %>%
+        .[[1]] %>%
+        mutate(home_or_vis = home_or_vis)
+    return(table)
+}
+
+```
+
+```{r Get Player Links Function, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Define a function to get player links
+
+get_player_links <- function(boxscore_url, home_or_vis) {
+    page <- read_html(boxscore_url)
+    node <- paste0("#all_", home_or_vis, "_starters")
+    plinks <- page %>%
+        html_node("body") %>%
+        html_node(node) %>%
+        html_node(xpath = "comment()") %>%
+        html_text() %>%
+        str_extract_all("[/]players[/].*?htm") %>%
+        unlist()
+    plinks <- paste0(py$pfr_root, plinks)
+    plinks <- gsub(".htm", "/fantasy/2021/", plinks)
+    return(plinks)
+}
+
+```
+
+```{r Get Starter Table Function, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Define a function get all of the starters
+
+get_all_starters <- function(boxscore_url) {
+    page <- read_html(boxscore_url)
+    starters <- data.frame()
+    for (homeorvis in c("home", "vis")) {
+        table <- get_starter_table(boxscore_url, homeorvis)
+        plinks <- get_player_links(boxscore_url, homeorvis)
+        table$playerlink <- plinks
+        starters <- rbind(starters, table) %>%
+            filter(Pos %in% c("QB", "WR", "RB", "TE"))
+    }
+    return(starters)
+}
+        
+```
+
+```{r Get Player Stats Function, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Define a function to get a players stats
+
+get_player_stats <- function(player_link) {
+    page <- read_html(player_link)
+    table <- page %>%
+        html_node("#player_fantasy") %>%
+        html_node("tbody") %>%
+        html_table()
+    tablehead <- page %>%
+        html_node("#player_fantasy") %>%
+        html_node("thead") %>%
+        html_nodes("th") %>%
+        html_text() %>%
+        tail(ncol(table))
+    colnames(table) <- tablehead
+    ffl_pts <- table[, c("G#", "Date", "FantPt")]
+    return(ffl_pts)
+}
+        
+```
+
+```{r Get Player Projections, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Get player projections
+# Note the link in this code will need to be replaced per user
+# Sign up for the sports data IO free trial to get the link
+
+http_get_req <- GET("https://api.sportsdata.io/v3/nfl/stats/json/FantasyPlayers?key=825b73bda6f948d18adab2ccdc0d252a")
+decoded <- fromJSON(rawToChar(http_get_req$content))
+projections <- decoded[, c("Name", "ProjectedFantasyPoints")] %>%
+    mutate(ProjectedFantasyPoints = ProjectedFantasyPoints / 18)
+        
+```
+
+```{r Get All of the Starters, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Get player actuals
+
+all_starters <- data.frame()
+for (boxscore_url in py$boxscore_urls) {
+    starter_table <- get_all_starters(boxscore_url)
+    all_starters <- rbind(all_starters, starter_table)
+}
+
+```
+
+```{r Get the FFL Points, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Get the current year ffl pts for each player
+
+starters_pts <- data.frame()
+for (plink in all_starters$playerlink) {
+    ffl_pts <- get_player_stats(plink)
+    ffl_pts$playerlink <- plink
+    starters_pts <- rbind(starters_pts, ffl_pts)
+}
+
+# Filter down to only the selected week
+# Also change any ffl pts that are NA to 0
+
+starters_pts <- starters_pts %>%
+    filter(Date %in% c("2021-10-25", "2021-10-24", "2021-10-21")) %>%
+    mutate(FantPt = ifelse(is.na(FantPt), 0, FantPt))
+
+```
+
+```{r Manual Name Fixes, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Make some manual name changes so that the subsequent join works
+
+all_starters[which(all_starters$Player == "Melvin Gordon"), "Player"] <- "Melvin Gordon III"
+all_starters[which(all_starters$Player == "D.J. Moore"), "Player"] <- "DJ Moore"
+all_starters[which(all_starters$Player == "Darrell Henderson"), "Player"] <- "Darrell Henderson Jr."
+all_starters[which(all_starters$Player == "Mark Ingram"), "Player"] <- "Mark Ingram II"
+all_starters[which(all_starters$Player == "Allen Robinson"), "Player"] <- "Allen Robinson II"
+all_starters[which(all_starters$Player == "D.K. Metcalf"), "Player"] <- "DK Metcalf"
+
+```
+
+```{r Put it All Together, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Join the week 7 ffl results with the list of week 7 starting players
+ffl_results <- left_join(all_starters, starters_pts, by = c("playerlink" = "playerlink"))
+
+# Josh Gordon and John Ross were listed the starting lineups but were not found
+ffl_results <- ffl_results %>% filter(! Player %in% c("Josh Gordon", "John Ross"))
+
+# Join in the player projections
+ffl_results <- left_join(ffl_results, projections, by = c("Player" = "Name"))
+
+```
+
+```{r Add Outcome Column, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Add a column stating whether the player was above their projection, in line
+# with their projection, or below the projection.
+
+# I will do this by first creating a function to compare the actual points
+# to the projected points, use the function to to get a list of all of the
+# player outcomes, and then add the list as a new column.
+
+get_ffl_result <- function(actual_points, projected_points) {
+    if (actual_points == 0 & projected_points == 0) {return("1")}
+    upper_thresh <- projected_points * 1.5
+    lower_thresh <- projected_points * 0.5
+    above <- actual_points >= upper_thresh
+    below <- actual_points <= lower_thresh
+    inline <- (! above) & (! below)
+    results_vector <- c("2" = above, "0" = below, "1" = inline)
+    index <- which(c(above, below, inline) == 1)
+    names(results_vector[index])
+}
+
+ffl_player_outcomes <- c()
+for (i in seq(nrow(ffl_results))) {
+    actual <- as.numeric(ffl_results[i, "FantPt"])
+    projected <- as.numeric(ffl_results[i, "ProjectedFantasyPoints"])
+    result <- get_ffl_result(actual, projected)
+    ffl_player_outcomes <- c(ffl_player_outcomes, result)
+}
+
+ffl_results$Outcome <- ffl_player_outcomes
+
+```
+
+<p>&nbsp;</p>
+
+#### **Collect Tweets**
+
+<p>&nbsp;</p>
+
+```{python Save API Access Info, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Save API access info
+consumer_key = "NRcMTRabl6wDB4ndG00cOCbXy"
+consumer_secret = "YkR81aCCSa0OKqSoQ1TM02zFdfPy2lXZfeRfEeE3Z9Ljr7vmPX"
+access_token = "1360729594660331528-Pitq9qx1ec82kaKqcitYx56KOECsad"
+access_token_secret = "t8SldVvnihuck9XA4Wcaed0zSo9SX8b6kGVBFGNEfrAV0"
+
+```
+
+```{python Create API Object, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Creating the authentication object
+auth = tw.OAuthHandler(consumer_key, consumer_secret)
+
+# Setting access token and secret
+auth.set_access_token(access_token, access_token_secret)
+
+# Creating the API object
+api = tw.API(auth) 
+
+```
+
+```{python Scrape Tweets Function, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Define a function to scrape the tweets for a given query
+def scrape_tweets(search_words, num_tweets, verbose):
+    
+    # Initiate a list to store the tweet text in
+    tweets_final = list()
+    
+    # Use tweepy to conduct the search for tweets
+    raw_tweets = api.search_tweets(
+        q = search_words,
+        lang = "en",
+        tweet_mode = "extended",
+        result_type = "recent",
+        count = num_tweets
+        )
+        
+    # Use a list comprehension to iterate through the tweets and store them in a list
+    tweet_list = [tweet for tweet in raw_tweets]
+    
+    # Iterate through all of the tweets in the tweet list and perform some operations
+    for tweet in tweet_list:
+        
+        # Extract the text from the tweet
+        try:
+            text = tweet.retweeted_status.fulL_text
+        except AttributeError:
+            text = tweet.full_text
+            
+        # Append the text to the list that was initiated earlier
+        tweets_final.append(text)
+        
+    # If verbose is true, print out that this has completed
+    if verbose == True:
+        print("query was successful ", search_words)
+        
+    # Return the tweets dataframe
+    return tweets_final
+
+```
+
+```{python Scrape Tweets, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Store a list of the players in a python list
+player_list = list(r.ffl_results.Player)
+
+# Store a list of the outcomes in a python list
+player_outcomes = list(r.ffl_results.Outcome)
+
+# Combine the players and their outcomes into a pandas dataframe
+player_df = pd.DataFrame(list(zip(player_list, player_outcomes)), columns = ["player", "outcome"])
+
+# Initiate a list to store the player for each iteration
+temp_player_list = []
+
+# Initiate a list to store the list of tweets for each iteration
+temp_tweet_list = []
+
+# Iterate through each one of the players
+for player in player_list:
+
+    # Use the scrape tweets function to scrape the tweets
+    player_tweets = scrape_tweets(player + " -filter:retweets", 100, False)
+    
+    # Create a temporary dict containing the player and their list of tweets
+    temp_player_list.append(player)
+    
+    # Turn that into a pandas dataframe so it can be appended
+    temp_tweet_list.append(player_tweets)
+    
+# Put together the players and their tweets into a dataframe
+all_player_tweets = pd.DataFrame(list(zip(temp_player_list, temp_tweet_list)), columns = ["player", "tweet"])
+
+# Join to get a dataframe of players, tweets, and outcome
+data = player_df.join(all_player_tweets, rsuffix = "_copy")
+
+# Drop the duplicate column that came with the join
+data = data.drop("player_copy", axis = 1)
+
+```
+
+```{python Clean Up Text Function}
+
+# Define a function for cleaning up the text
+def tokenize_tweets(text_data):
+  
+  # Put together a collection of stopwords from various sources
+  nltk_stopwords = nltk.corpus.stopwords.words("english")
+  more_stopwords = ["https", "t", "n", "co", "s", "nhttps", "http"]
+  player_stopwords = list(chain.from_iterable([w.lower().split() for w in list(player_df.player)]))
+  punctuation_stopwords = list(st.punctuation)
+  all_stopwords = nltk_stopwords + more_stopwords + player_stopwords + punctuation_stopwords
+  
+  # Tokenize the tweets and make them all lowercase
+  tokenizer = TweetTokenizer()
+  tweet_tokens = tokenizer.tokenize(text_data)
+  tweet_tokens_lowercase = [t.lower() for t in tweet_tokens]
+  
+  # Filter the tweets further via some manual regex and the stopwords list
+  tweet_tokens_stopped = [t for t in tweet_tokens_lowercase if not bool(re.compile(r"@").match(t))]
+  tweet_tokens_stopped2 = [t for t in tweet_tokens_stopped if not bool(re.compile(r"http").match(t))]
+  tweet_tokens_stopped3 = [t for t in tweet_tokens_stopped2 if not len([p for p in punctuation_stopwords if p in t]) > 0]
+  tweet_tokens_stopped4 = [t for t in tweet_tokens_stopped3 if not t in all_stopwords]
+  
+  # Stem the tweets using the Porter stemmer
+  tweet_stemmed = [PorterStemmer().stem(t) for t in tweet_tokens_stopped4]
+  
+  # Return the final list of the tokenized tweets
+  return tweet_stemmed
+
+```
+
+```{python Get Data, message = FALSE, warning = FALSE}
+
+# Store a list of the tweets
+tweets = data["tweet"]
+
+# Store a list of the outcomes
+outcomes = data["outcome"]
+
+```
+
+```{python Clean Tweets, message = FALSE, warning = FALSE}
+
+# Initiate a list to unpack the tweets into
+tweets_cleaned = []
+
+# Iterate through the tweets and unpack them
+for tweet in tweets:
+  
+  # Transform the list into text
+  tweets_text = " ".join(tweet)
+  
+  # Use the tokenize_tweets function on the text
+  tweets_tokenized = tokenize_tweets(tweets_text)
+  
+  # Transform back into text
+  tweets_untokenized = " ".join(tweets_tokenized)
+  
+  # Append to the list of tweets
+  tweets_cleaned.append(tweets_untokenized)
+
+```
+
+```{python Export data to a csv, message = FALSE, warning = FALSE}
+
+# Create a csv of the data and export it
+
+export = pd.DataFrame(list(zip(tweets_cleaned, outcomes)), columns = ["tweets", "outcome"])
+export.to_csv("tweets.csv", index = False, encoding = "utf8")
+
+```
