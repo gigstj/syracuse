@@ -1,0 +1,1193 @@
+---
+output:
+    html_document:
+        toc: true
+        toc_depth: 5
+        toc_float:
+            collapsed: FALSE
+            smooth_scroll: true
+        fig_height: 5
+        fig_width: 8
+        df_print: paged
+        code_folding: hide
+---
+
+<p>&nbsp;</p>
+
+#### **Introduction**
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+Up until recently, cryptocurrency has been seen mostly as a speculative asset. 
+That all changed when the crypto market popped in early 2020. Suddenly, there
+was a huge wave of hype and prices skyrocketed across the board. Since then,
+things have cooled off, but there has been a lasting impact. Crypto is starting
+to become a widely accepted form of currency.
+
+It is easier than ever to trade crypto nowadays with apps such as Coinbase or
+Binance and there are thousands of crypto coins that are available to be traded
+on these platforms. Maybe the chance to get rich quick has already passsed, but
+I believe that there are still a lot of opportunities to make money. My goal in
+this project is to create a prediction of cryptocurrency prices for over 150
+different cryptocurrencies.
+
+</font>
+
+<p>&nbsp;</p>
+
+#### **I. Environment Setup**
+
+<p>&nbsp;</p>
+
+##### **i. Load R Packages**
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+To start off, the necessary R packages will be loaded in order to run the code
+in this report. I have added a short comment next to each one below to indicate
+its usage.
+
+</font>
+
+```{r Load R packages, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Load R packages
+library(readr)       # Reading in csv files
+library(dplyr)       # Pipe operations and joins
+library(ggplot2)     # Data visualization
+library(plotly)      # Interactive data visualization
+library(sqldf)       # Data manipulation with SQL
+library(stringr)     # String operations and regex
+library(reshape2)    # Casting and melting
+library(lubridate)   # Date functions
+library(zoo)         # na.locf() function for filling NAs
+library(corrplot)    # Correlation matrix
+library(kableExtra)  # Rendering nicely formatted tables
+library(prophet)     # Time series forecasting
+
+```
+
+<p>&nbsp;</p>
+
+##### **ii. Load the Data**
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+Next, the data will be loaded. There are 7 csv files, each which correspond with
+one table. These files are produced from running the data collection jupyter
+notebook which I have done separately. A dataframe that I call the crypto
+dataframe is formed by joining the 7 tables together.
+
+</font>
+
+```{r Load the data, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Load the data
+T_Asset <- read_csv("Asset.csv", col_types = cols(.default = "c"))
+T_Price <- read_csv("Price.csv", col_types = cols(.default = "c"))
+T_CoinMarket <- read_csv("CoinMarket.csv", col_types = cols(.default = "c"))
+T_Youtube <- read_csv("Youtube.csv", col_types = cols(.default = "c"))
+T_Twitter <- read_csv("Twitter.csv", col_types = cols(.default = "c"))
+T_Google <- read_csv("Google.csv", col_types = cols(.default = "c"))
+T_Stocks <- read_csv("Stocks.csv", col_types = cols(.default = "c"))
+
+# Convert data types
+T_Price[, 3:7] <- T_Price[, 3:7] %>% mutate_all(as.numeric)
+T_CoinMarket[, 3:5] <- T_CoinMarket[, 3:5] %>% mutate_all(as.numeric)
+T_Youtube[, 3] <- T_Youtube[, 3] %>% mutate_all(as.numeric)
+T_Twitter[, 3] <- T_Twitter[, 3] %>% mutate_all(as.numeric)
+T_Google[, 3] <- T_Google[, 3] %>% mutate_all(as.numeric)
+T_Stocks[, 2:3] <- T_Stocks[, 2:3] %>% mutate_all(as.numeric)
+
+# Crypto dataframe
+Crypto <- T_Price %>%
+  left_join(T_CoinMarket, by = c("Ticker", "Date")) %>%
+  left_join(T_Youtube, by = c("Ticker", "Date")) %>%
+  left_join(T_Twitter, by = c("Ticker", "Date")) %>%
+  left_join(T_Google, by = c("Ticker", "Date")) %>%
+  left_join(T_Stocks, by = c("Date")) %>%
+  left_join(T_Asset, by = c("Ticker"))
+
+```
+
+<p>&nbsp;</p>
+
+#### **II. Initial Data Preparation**
+
+<p>&nbsp;</p>
+
+##### **i. Add Date Part Columns**
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+The following code adds several date part columns to the crypto dataframe. The
+columns added are year, month, week, day of week, year month, year week,
+last day of month, and last day of week. These columns are useful in time series
+analysis and will be used later on.
+
+</font>
+
+```{r Add date part columns, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Add date part columns
+Crypto <- Crypto %>%
+  mutate(Year = year(Date)) %>%
+  mutate(Month = ifelse(month(Date) < 10, paste0("0", month(Date)), month(Date))) %>%
+  mutate(Week = ifelse(week(Date) < 10, paste0("0", week(Date)), week(Date))) %>%
+  mutate(DayOfWeek = as.numeric(format(as.Date(Date), format = "%u"))) %>%
+  mutate(YearMonth = paste0(Year, Month)) %>%
+  mutate(YearWeek = paste0(Year, Week)) %>%
+  transform(LastDayMonth = as.numeric(Month != c(Month[-1], NA))) %>%
+  mutate(LastDayWeek = ifelse(DayOfWeek == 7, 1, 0))
+
+```
+
+<p>&nbsp;</p>
+
+##### **ii. Handle Some Missing Values**
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+For the DJIPrice and NASDAQPrice variables, Saturdays, Sundays, and holidays are
+non trading days. This is not an issue with crypto since crypto is traded 24/7.
+Thus, as a result of joining the data, NAs appear under the DJIPrice and
+NASDAQPrice variables on these non trading days. I do not want to drop the NAs
+since that would remove important crypto data. Thus, the NAs will be filled with
+the last known closing price.
+
+</font>
+
+```{r Fill in NAs in the DJI and NASDAQ variables, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Fill in NAs in DJI and NASDAQ variables
+Crypto$DJIPrice <- na.locf(Crypto$DJIPrice)
+Crypto$NASDAQPrice <- na.locf(Crypto$NASDAQPrice)
+
+```
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+There are some more missing values that need to be handled. I started collecting
+the CirculatingSupply, MaximumSupply, CMCRank, and TweetCount variables at the
+start of this project. I have been capturing these in daily increments by
+running the data collection code once per day, but there have been some days
+where I have not been able to run it. I will fill in these NAs in the same way
+as I did with the DJIPrice and NASDAQPrice variables.
+
+</font>
+
+```{r Fill in NAs in other variables, message = FALSE, warning = FALSE, class.source = 'fold-show'}
+
+# Fill in NAs in other variables
+for (Column in colnames(Crypto)[c(8:10, 12)]){
+  for (Cryptocurrency in unique(Crypto$Ticker)) {
+    FilteredData <- Crypto[Crypto$Ticker == Cryptocurrency, ]
+    BeforeData <- FilteredData[FilteredData$Date < "2022-02-14", Column]
+    AfterData <- FilteredData[FilteredData$Date >= "2022-02-14", Column]
+    if (sum(na.locf(AfterData)) == 0) {next}
+    NewColumn <-  c(BeforeData, na.locf(AfterData, na.rm = FALSE))
+    Crypto[Crypto$Ticker == Cryptocurrency, Column] <- NewColumn
+  }
+}
+
+# Delete the leftover variables
+rm(Column, Cryptocurrency, FilteredData, BeforeData, AfterData, NewColumn)
+
+```
+
+<p>&nbsp;</p>
+
+##### **iii. Show the Crypto Dataframe**
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+After the data transformations that have taken place up to this point, here is
+what the crypto dataframe looks like.
+
+</font>
+
+```{r Show the crypto dataframe, message = FALSE, warning = FALSE}
+
+# Show the crypto dataframe
+Crypto %>%
+  filter(complete.cases(Crypto)) %>%
+  arrange(desc(Date), Ticker) %>%
+  head(50) %>%
+  kbl(digits = 2) %>%
+  kable_styling(full_width = TRUE) %>%
+  scroll_box(height = "500px", fixed_thead = list(enabled = T))
+
+```
+
+<p>&nbsp;</p>
+
+#### **III. Data Exploration**
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+Next, I will start to explore the data. First, some basic questions will be
+answered. This will help to gain some familiarity with the data. After that, I
+will show a histogram of current cryptocurrency prices, a correlation matrix
+of the numeric variables in the Crypto dataframe, and an interactive time series
+plot.
+
+</font>
+
+<p>&nbsp;</p>
+
+##### **i. Basic Questions**
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+*How many unique cryptocurrencies are there in the dataset?*
+
+</font>
+
+```{r Unique cryptocurrency coins, message = FALSE, warning = FALSE}
+
+length(unique(Crypto$Ticker))
+
+```
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+*What are the top 25 most expensive cryptocurrencies?*
+
+</font>
+
+```{r Most expensive cryptocurrency, message = FALSE, warning = FALSE}
+
+sqldf("
+select
+  Ticker,
+  Slug,
+  Close
+from (
+    select
+      Ticker,
+      Slug,
+      Date,
+      max(Date) as MaxDate,
+      Close
+    from
+      Crypto
+    group by
+      Ticker
+) sub
+where
+  Date = MaxDate
+order by
+ Close desc
+") %>%
+  
+mutate(Close = paste0("$", round(Close, 0))) %>%
+rename(`Current Price` = Close) %>%
+head(25)
+
+```
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+*What are the top 25 least expensive cryptocurrencies?*
+
+</font>
+
+```{r Least expensive cryptocurrency, message = FALSE, warning = FALSE}
+
+sqldf("
+select
+  Ticker,
+  Slug,
+  Close
+from (
+    select
+      Ticker,
+      Slug,
+      Date,
+      max(Date) as MaxDate,
+      Close
+    from
+      Crypto
+    group by
+      Ticker
+) sub
+where
+  Date = MaxDate
+order by
+ Close asc
+") %>%
+  
+mutate(Close = format(Close, scientific = F)) %>%
+mutate(Close = paste0("$", trimws(Close))) %>%
+rename(`Current Price` = Close) %>%
+head(25)
+
+```
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+*What are the top 25 most traded cryptocurrencies?*
+
+</font>
+
+```{r Most traded cryptocurrency, message = FALSE, warning = FALSE}
+
+aggregate(data = Crypto, Volume ~ Ticker + Slug, mean) %>%
+  mutate(Volume = round(Volume, 0)) %>%
+  arrange(desc(Volume)) %>%
+  mutate(Volume = format(Volume, scientific = F)) %>%
+  rename(`Average 24 Hour Trading Volume` = Volume) %>%
+  head(25)
+
+```
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+*What are the top 25 least traded cryptocurrencies?*
+
+</font>
+
+```{r Least traded cryptocurrency, message = FALSE, warning = FALSE}
+
+aggregate(data = Crypto, Volume ~ Ticker + Slug, mean) %>%
+  mutate(Volume = round(Volume, 0)) %>%
+  arrange(Volume) %>%
+  mutate(Volume = format(Volume, scientific = F)) %>%
+  rename(`Average 24 Hour Trading Volume` = Volume) %>%
+  head(25)
+
+```
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+*Which 25 cryptocurrencies are closest to their maximum supply?*
+
+</font>
+
+```{r Closest to max supply, message = FALSE, warning = FALSE}
+
+Crypto %>%
+  filter(! is.na(CirculatingSupply) & ! is.na(MaximumSupply)) %>%
+  select(Ticker, Date) %>%
+  aggregate(formula = Date ~ Ticker, FUN = max, data = .) %>%
+  left_join(Crypto, by = c("Ticker" = "Ticker", "Date" = "Date")) %>%
+  select(Ticker, Slug, CirculatingSupply, MaximumSupply) %>%
+  mutate(PercentMaximumSupply = CirculatingSupply / MaximumSupply) %>%
+  mutate(CirculatingSupply = format(CirculatingSupply, scientific = F)) %>%
+  mutate(MaximumSupply = format(MaximumSupply, scientific = F)) %>%
+  arrange(desc(PercentMaximumSupply)) %>%
+  mutate(PercentMaximumSupply = paste0(round(PercentMaximumSupply * 100, 2), "%")) %>%
+  rename(`Circulating Supply` = CirculatingSupply) %>%
+  rename(`Maximum Supply` = MaximumSupply) %>%
+  rename(`Percent of Maximum Supply In Circulation` = PercentMaximumSupply) %>%
+  head(25)
+
+```
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+*Which 25 cryptocurrencies are furthest away from their maximum supply?*
+
+</font>
+
+```{r Furthest away from max supply, message = FALSE, warning = FALSE}
+
+Crypto %>%
+  filter(! is.na(CirculatingSupply) & ! is.na(MaximumSupply)) %>%
+  select(Ticker, Date) %>%
+  aggregate(formula = Date ~ Ticker, FUN = max, data = .) %>%
+  left_join(Crypto, by = c("Ticker" = "Ticker", "Date" = "Date")) %>%
+  select(Ticker, Slug, CirculatingSupply, MaximumSupply) %>%
+  mutate(PercentMaximumSupply = CirculatingSupply / MaximumSupply) %>%
+  mutate(CirculatingSupply = format(CirculatingSupply, scientific = F)) %>%
+  mutate(MaximumSupply = format(MaximumSupply, scientific = F)) %>%
+  arrange(PercentMaximumSupply) %>%
+  mutate(PercentMaximumSupply = paste0(round(PercentMaximumSupply * 100, 2), "%")) %>%
+  rename(`Circulating Supply` = CirculatingSupply) %>%
+  rename(`Maximum Supply` = MaximumSupply) %>%
+  rename(`Percent of Maximum Supply In Circulation` = PercentMaximumSupply) %>%
+  head(25)
+
+```
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+*Which 25 cryptocurrencies have the largest average daily increase in circulating supply?*
+
+</font>
+
+```{r Largest average daily increase, message = FALSE, warning = FALSE}
+
+Crypto %>%
+  filter(! is.na(CirculatingSupply) & ! is.na(MaximumSupply)) %>%
+  transform(SupplyIncrease = c(CirculatingSupply[-1], NA) - CirculatingSupply) %>%
+  transform(SupplyIncreasePercent = round(SupplyIncrease / c(CirculatingSupply[-1], NA), 2)) %>%
+  transform(NewTicker = c(Ticker[-1], NA) != Ticker) %>%
+  mutate(SupplyIncrease = ifelse(NewTicker, NA, SupplyIncrease)) %>%
+  mutate(SupplyIncreasePercent = ifelse(NewTicker, NA, SupplyIncreasePercent)) %>%
+  aggregate(cbind(SupplyIncrease, SupplyIncreasePercent) ~ Ticker + Slug, mean, data = .) %>%
+  arrange(desc(SupplyIncreasePercent)) %>%
+  mutate(SupplyIncrease = format(round(SupplyIncrease, 0), scientific = F)) %>%
+  mutate(SupplyIncreasePercent = paste0(round(SupplyIncreasePercent * 100, 2), "%")) %>%
+  rename(`Average Daily Increase In Circulating Supply (Units)` = SupplyIncrease) %>%
+  rename(`Average Daily Increase In Circulating Supply (Percent)` = SupplyIncreasePercent) %>%
+  head(25)
+  
+
+```
+
+<p>&nbsp;</p>
+
+##### **ii. Current Price Histogram**
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+The following chart shows the distribution of the log 10 of the current prices
+for all the cryptocurrencies. The log 10 is used because otherwise the
+distribution is way too sparse to fit into a graph. As seen in the top 10 most
+expensive and top 10 least expensive cryptocurrencies, the prices can range from
+fractions of a cent to tens of thousands of dollars.
+
+</font>
+
+```{r Current price histogram, message = FALSE, warning = FALSE}
+
+# Current prices dataframe
+CurrentPrices <- Crypto %>%
+  filter(! is.na(Close)) %>%
+  filter(Date == max(Date))
+
+# Min and max prices
+MinPrice <- round(min(log10(CurrentPrices$Close)), 2)
+MaxPrice <- round(max(log10(CurrentPrices$Close)), 2)
+PriceRange <- MaxPrice - MinPrice
+
+# X axis adjustment
+XAxisBreaks = seq(MinPrice, MaxPrice, PriceRange / 10) %>% round(2)
+XAxisTicks = seq(MinPrice, MaxPrice, PriceRange / 10) %>% round(2)
+
+# Current prices histogram
+CurrentPrices %>%
+  select(Close) %>%
+  ggplot(aes(x = log10(Close))) +
+  geom_histogram(color = "black", fill = "darkgrey", bins = 50) +
+  scale_x_continuous(breaks = XAxisBreaks, labels = XAxisTicks) +
+  ggtitle("\nCrypto Price Histogram\n\n") +
+  xlab("\nLog 10 of Price\n") +
+  ylab("\nCount\n") +
+  labs(caption = paste0("Closing prices as of ", max(Crypto$Date), " per Yahoo Finance")) +
+  theme(axis.text.x = element_text(size = 9.5, angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 9.5),
+        axis.title.x = element_text(size = 10, color = "black", face = "bold"),
+        axis.title.y = element_text(size = 10, color = "black", face = "bold"),
+        title = element_text(size = 11, color = "black", face = "bold"),
+        plot.caption = element_text(size = 9, color = "black", face = "italic"),
+        panel.background = element_rect(fill = NA))
+
+# Remove the leftover variables
+rm(MaxPrice, MinPrice, XAxisBreaks, XAxisTicks, PriceRange, CurrentPrices)
+
+```
+
+<p>&nbsp;</p>
+
+##### **iii. Correlation Matrix**
+
+<font size = "4">
+
+A couple important things to note about the following correlation matrices. The
+correlation displayed is the mean correlation among all cryptocurrencies. Also,
+correlations including the CirculatingSupply, CMCRank, VideoCount, and
+TweetCount variables are computed using data from Feb 14th or later due to
+limited data. The other correlations are computed using data from a max of 5
+years ago or the beginning of available data, whichever comes first.
+
+</font>
+
+<p>&nbsp;</p>
+
+```{r Correlation Matrix, fig.height = 8, fig.width = 16, message = FALSE, warning = FALSE}
+
+# Set the display to 1 row 2 columns
+par(mfrow = c(1, 2))
+
+# Short term correlation matrix
+ShortTerm <- data.frame()
+for (Cryptocurrency in unique(Crypto$Ticker)) {
+  ShortTerm <- Crypto %>%
+    filter(Ticker == Cryptocurrency) %>%
+    filter(Date >= "2022-02-14") %>%
+    filter(Date <= as.character(Sys.Date())) %>%
+    select(Close, CirculatingSupply:TweetCount) %>%
+    select(-MaximumSupply) %>%
+    cor(method = "pearson") %>%
+    as.data.frame() %>%
+    mutate(Ticker = Cryptocurrency) %>%
+    rbind(ShortTerm)
+}
+
+# Further manipulate the dataframe
+ShortTerm <- ShortTerm %>%
+  mutate(Measure = row.names(.)) %>%
+  mutate(Measure = gsub("([0-9]*)", "", Measure)) %>%
+  melt(id = c("Ticker", "Measure")) %>%
+  aggregate(value ~ Measure + variable, mean, data = .) %>%
+  dcast(Measure ~ variable, value.var = "value")  %>%
+  mutate(across(where(is.numeric), ~ round(., 2))) %>%
+  arrange(Measure) %>%
+  `rownames<-`(.[, "Measure"]) %>%
+  select(-Measure) %>%
+  .[, sort(colnames(.), decreasing = T)] %>%
+  .[rev(row.names(.)), ] %>%
+  as.matrix() %>%
+  
+# Feed to correlation plot function
+corrplot(
+  method = "square",
+  type = "lower",
+  diag = F,
+  addCoef.col = "black",
+  col = COL2("BrBG"),
+  tl.col = "black",
+  title = "\nAverage Correlations 2022-02-14 to Present\n",
+  mar = c(1, 1, 1, 1),
+  order = "original",
+  tl.srt = 45
+)
+
+# Long term correlation matrix
+LongTerm <- data.frame()
+for (Cryptocurrency in unique(Crypto$Ticker)) {
+  LongTerm <- Crypto %>%
+    filter(Ticker == Cryptocurrency) %>%
+    filter(Date <= as.character(Sys.Date())) %>%
+    filter(! is.na(InterestLevel)) %>%
+    select(Close, Volume, InterestLevel:NASDAQPrice) %>%
+    cor(method = "pearson") %>%
+    as.data.frame() %>%
+    mutate(Ticker = Cryptocurrency) %>%
+    rbind(LongTerm)
+}
+
+# Further manipulate the dataframe
+LongTerm <- LongTerm %>%
+  mutate(Measure = row.names(.)) %>%
+  mutate(Measure = gsub("([0-9]*)", "", Measure)) %>%
+  melt(id = c("Ticker", "Measure")) %>%
+  aggregate(value ~ Measure + variable, mean, data = .) %>%
+  dcast(Measure ~ variable, value.var = "value")  %>%
+  mutate(across(where(is.numeric), ~ round(., 2))) %>%
+  arrange(Measure) %>%
+  `rownames<-`(.[, "Measure"]) %>%
+  select(-Measure) %>%
+  .[, sort(colnames(.), decreasing = T)] %>%
+  .[rev(row.names(.)), ] %>%
+  as.matrix() %>%
+  
+# Feed to correlation plot function
+corrplot(
+  method = "square",
+  type = "lower",
+  diag = F,
+  addCoef.col = "black",
+  col = COL2("BrBG"),
+  tl.col = "black",
+  title = "\nAverage Correlations 5 Years Ago to Present\n",
+  mar = c(1, 1, 1, 1),
+  order = "original",
+  tl.srt = 45
+)
+
+# Return the display settings to normal
+par(mfrow = c(1, 1))
+
+# Remove the leftover variables
+rm(LongTerm, ShortTerm, Cryptocurrency)
+    
+```
+
+<p>&nbsp;</p>
+
+##### **iv. Time Series Plot**
+
+<font size = "4">
+
+The following time series plot displays the price overtime for any of the
+cryptocurrencies. One cryptocurrency can be selected at a time by using the
+filter.
+
+</font>
+
+<p>&nbsp;</p>
+
+```{r Time series plot, message = FALSE, warning = FALSE}
+
+# Create nested list for the buttons argument
+Buttons <- list(mode = "list", length = length(unique(Crypto$Ticker)))
+Counter <- 1
+for (Name in unique(paste0(Crypto$Slug, " (", Crypto$Ticker, ")"))) {
+  Button <- list(
+    method = "restyle",
+    args = list("transforms[0].value", Name),
+    label = Name
+    )
+  Buttons[[Counter]] <- Button
+  Counter <- Counter + 1
+}
+names(Buttons) <- NULL
+
+# Create the plotly object
+Figure <- Crypto %>%
+  
+  filter(LastDayWeek == 1) %>%
+  mutate(CryptoName = paste0(Slug, " (", Ticker, ")")) %>%
+  mutate(Date = as.Date(Date, "%Y-%m-%d")) %>%
+  
+  plot_ly(
+    type = "scatter", 
+    x = ~Date, 
+    y = ~Close,
+    text = ~Close,
+    hoverinfo = "text",
+    mode = "line", 
+    transforms = list(
+      list(
+        type = "filter",
+        target = ~CryptoName,
+        operation = "=",
+        value = unique(paste0(Crypto$Slug, " (", Crypto$Ticker, ")"))[1]
+      )
+    )
+  ) %>%
+  
+  layout(
+    updatemenus = list(
+      list(
+        type = "dropdown",
+        active = 0,
+        bordercolor = "black",
+        buttons = Buttons,
+        label = "Cryptocurrency Selector"
+      )
+    )
+  ) %>%
+  
+  layout(
+    title = "<br>Cryptocurrency Time Series Plot<br>",
+    showlegend = FALSE,
+    xaxis = list(title = "<br>Week End Date<br>", tickangle = -45),
+    yaxis = list(title = "<br>Closing Price<br>"),
+    plot_bgcolor = "#e5ecf6"
+  )
+
+Figure
+
+# Remove the leftover variables
+rm(Button, Buttons, Counter, Name, Figure)
+
+```
+
+<p>&nbsp;</p>
+
+#### **III. Data Modeling**
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+In the data modeling phase, I will train a forecast for each cryptocurrency
+using different techniques and evaluate their performances based on a 3 month
+hold out period.
+
+</font>
+
+<p>&nbsp;</p>
+
+##### **i. Split Test / Train Data**
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+For each cryptocurrency, the test data will consist of the most recent 3 months
+and the train data will consist of everything prior to that.
+
+</font>
+
+```{r Split test / train data, message = FALSE, warning = FALSE}
+
+# Set the cutoff to todays date minus 90 days
+Cutoff <- as.character(as.Date(Sys.Date(), "%Y-%m-%d") - 90)
+
+# Split test / train data based on the cutoff
+TrainAll <- Crypto %>% filter(Date <= Cutoff)
+Test <- Crypto %>% filter(Date > Cutoff)
+
+```
+
+<p>&nbsp;</p>
+
+##### **ii. Different History Versions**
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+Different versions of the training data will be created. Each version has a
+pruned amount of historical data There are six versions going from using
+all of the history to using just one month of history. Also, each version
+will contain outlier adjusted prices, adjusted to 1, 2, and 3 standard
+deviations from the mean.
+
+</font>
+
+```{r Different History Versions, message = FALSE, warning = FALSE}
+
+AddSdColumn <- function(Df) {
+  Sd <- aggregate(data = Df, Close ~ Ticker, sd)
+  colnames(Sd) <- c("Ticker", "Sd")
+  left_join(Df, Sd, by = c("Ticker" = "Ticker"))
+}
+
+AddMeanColumn <- function(Df) {
+  Mean <- aggregate(data = Df, Close ~ Ticker, mean)
+  colnames(Mean) <- c("Ticker", "Mean")
+  left_join(Df, Mean, by = c("Ticker" = "Ticker"))
+}
+
+AddUpperLimit <- function(Df, Sigma) {
+  ColumnName <- paste0("UpperLimit", Sigma)
+  ColumnVals <- Df$Mean + (Sigma * Df$Sd)
+  Df <- Df %>% mutate(Column = ColumnVals)
+  colnames(Df)[ncol(Df)] <- ColumnName
+  return(Df)
+}
+
+AddLowerLimit <- function(Df, Sigma) {
+  ColumnName <- paste0("LowerLimit", Sigma)
+  ColumnVals <- Df$Mean - (Sigma * Df$Sd)
+  Df <- Df %>% mutate(Column = ColumnVals)
+  colnames(Df)[ncol(Df)] <- ColumnName
+  return(Df)
+}
+
+AddAllLimits <- function(Df) {
+  for (Sigma in c(1, 2, 3)) {
+    Df <- AddUpperLimit(Df, Sigma)
+    Df <- AddLowerLimit(Df, Sigma)
+  }
+  Df
+}
+
+AdjustToLimit <- function(Y, Upper, Lower) {
+  YAdjusted <- ifelse(Y > Upper, Upper, Y)
+  ifelse(YAdjusted < Lower, Lower, YAdjusted)
+}
+
+AddAdjusted <- function(Df, Sigma, UpperIx, LowerIx) {
+  ColumnName <- paste0("Close", Sigma)
+  ColumnVals <- AdjustToLimit(Df[, "Close"], Df[, UpperIx], Df[, LowerIx])
+  Df <- Df %>% mutate(Column = ColumnVals)
+  colnames(Df)[ncol(Df)] <- ColumnName
+  return(Df)
+}
+
+AddAllAdjusted <- function(Df) {
+  Args <- list(c(1, 2, 3), c(27, 29, 31), c(28, 30, 32))
+  for (Ix in c(1, 2, 3)) {
+    Df <- AddAdjusted(Df, Args[[1]][Ix], Args[[2]][Ix], Args[[3]][Ix])
+  }
+  Df
+}
+
+OutlierPreprocess <- function(Df) {
+  Df <- Df %>% AddSdColumn()
+  Df <- Df %>% AddMeanColumn()
+  Df <- Df %>% AddAllLimits()
+  AddAllAdjusted(Df)
+}
+
+TrainAll <- TrainAll %>%
+  OutlierPreprocess(.)
+
+Train24 <- Crypto %>%
+  filter(Date >= as.character(as.Date(Sys.Date(), "%Y-%m-%d") - 820)) %>%
+  filter(Date <= Cutoff) %>%
+  OutlierPreprocess(.)
+
+Train12 <- Crypto %>%
+  filter(Date >= as.character(as.Date(Sys.Date(), "%Y-%m-%d") - 455)) %>%
+  filter(Date <= Cutoff) %>%
+  OutlierPreprocess(.)
+
+Train6 <- Crypto %>%
+  filter(Date >= as.character(as.Date(Sys.Date(), "%Y-%m-%d") - 275)) %>%
+  filter(Date <= Cutoff) %>%
+  OutlierPreprocess(.)
+
+Train3 <- Crypto %>%
+  filter(Date >= as.character(as.Date(Sys.Date(), "%Y-%m-%d") - 185)) %>%
+  filter(Date <= Cutoff) %>%
+  OutlierPreprocess(.)
+
+Train1 <- Crypto %>%
+  filter(Date >= as.character(as.Date(Sys.Date(), "%Y-%m-%d") - 120)) %>%
+  filter(Date <= Cutoff) %>%
+  OutlierPreprocess(.)
+
+```
+
+<p>&nbsp;</p>
+
+##### **iii. Prophet Model**
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+The prophet package is a package developed by Facebook for time series
+forecasting. In the following code, I will be producing and evaluating a
+forecast using prophet on each version of the crypto data.
+
+</font>
+
+```{r Prophet model, message = FALSE, warning = FALSE}
+
+# Step 1: create historical dataframe
+CreateHistoricalDf <- function(CryptoDf, CryptoTicker, YColName) {
+  CryptoDf[CryptoDf$Ticker == CryptoTicker, c("Date", YColName)]
+}
+
+# Step 2: train a prophet model
+TrainProphetModel <- function(HistoricalDf) {
+  colnames(HistoricalDf) <- c("ds", "y")
+  HistoricalDf %>% prophet(yearly.seasonality = FALSE,
+                           weekly.seasonality = FALSE,
+                           daily.seasonality = TRUE)
+}
+
+# Step 3: create a future dataframe
+CreateFutureDf <- function(ProphetModel, NumPeriods) {
+  make_future_dataframe(ProphetModel, NumPeriods, include_history = FALSE)
+}
+
+# Step 4: make predictions on the future dataframe
+MakePredictions <- function(ProphetModel, FutureDf) {
+  predict(ProphetModel, FutureDf)[, c("ds", "yhat")] %>%
+    mutate(ds = as.character(ds))
+}
+
+# Step 5: create a y test dataframe
+CreateYTestDf <- function(CryptoDf, CryptoTicker, CutoffDate) {
+  CryptoDf <- CryptoDf %>% filter(Date > CutoffDate, Ticker == CryptoTicker)
+  CryptoDf %>% select(Date, Close)
+}
+
+# Step 6: create a results df
+CreateOutputDf <- function(YPredDf, YTestDf) {
+  left_join(YPredDf, YTestDf, by = c("ds" = "Date"))
+}
+
+# Step 7: measure n day accuracy scores
+MeasureNDayAccuracy <- function(OutputDf, N) {
+  AbsError <- sum(abs(OutputDf$yhat[1:N] - OutputDf$Close[1:N]), na.rm = TRUE)
+  1 - (AbsError / sum(OutputDf$Close[1:N], na.rm = TRUE))
+}
+
+# Step 8: create accuracy dataframe
+CreateAccuracyDf <- function(OutputDf, CryptoTicker, Version) {
+  data.frame(
+    "Ticker" = CryptoTicker,
+    "Version" = Version,
+    "Accuracy7Day" = MeasureNDayAccuracy(OutputDf, 7),
+    "Accuracy30Day" = MeasureNDayAccuracy(OutputDf, 30),
+    "Accuracy90Day" = MeasureNDayAccuracy(OutputDf, 90)
+  )
+}
+
+# Step 9: prepare dataframe for union
+PrepareDf <- function(Df, TypeName) {
+  colnames(Df) <- c("Date", "Quantity")
+  Df %>% mutate(Type = TypeName)
+}
+
+# Step 10: create all time df
+CreateAllTimeDf <- function(HistoricalDf, YPredDf, CryptoTicker, Version) {
+  PrepareDf(HistoricalDf, "Historical") %>%
+    rbind(PrepareDf(YPredDf, "Forecast")) %>%
+    mutate(Version = Version) %>%
+    mutate(Ticker = CryptoTicker) %>%
+    select(Ticker, Version, Type, Date, Quantity)
+}
+
+# Create a list of training versions to iterate through
+VersionNames <- list("All", "24", "12", "6", "3", "1")
+VersionObjects <- list(TrainAll, Train24, Train12, Train6, Train3, Train1)
+VersionList <- list(VersionNames, VersionObjects)
+
+# Create empty dfs for saving all of the results
+AccuracyLog <- data.frame()
+TimeSeries <- data.frame()
+
+for (VersionNumber in c(1, 2, 3, 4, 5, 6)) {
+  for (CryptoTicker in unique(VersionList[[2]][[VersionNumber]]$Ticker)) {
+    for (CloseVariant in c("Close", "Close1", "Close2", "Close3")) {
+      
+      # Save the variables that are needed for this iteration
+      CryptoDf <- VersionList[[2]][[VersionNumber]]
+      TypeName <- VersionList[[1]][[VersionNumber]]
+      TypeName <- paste0(TypeName, "Month", CloseVariant)
+      SkipToNext <- FALSE
+      
+      # Perform all the steps and capture the results
+      tryCatch({
+        HistoricalDf <- CreateHistoricalDf(CryptoDf, CryptoTicker, CloseVariant)
+        ProphetModel <- TrainProphetModel(HistoricalDf)
+        FutureDf <- CreateFutureDf(ProphetModel, 365)
+        YPredDf <- MakePredictions(ProphetModel, FutureDf)
+        YTestDf <- CreateYTestDf(Crypto, CryptoTicker, Cutoff)
+        OutputDf <- CreateOutputDf(YPredDf, YTestDf)
+        AccuracyDf <- CreateAccuracyDf(OutputDf, CryptoTicker, TypeName)
+        AccuracyLog <- rbind(AccuracyLog, AccuracyDf)
+        AllTimeDf <- CreateAllTimeDf(HistoricalDf, YPredDf, CryptoTicker, TypeName)
+        TimeSeries <- rbind(TimeSeries, AllTimeDf)
+      }, error = function(e) {
+        SkipToNext <- TRUE
+      })
+      
+      if (SkipToNext) {next}
+    }
+  }
+}
+
+```
+
+<p>&nbsp;</p>
+
+##### **iv. Accuracy Results**
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+</font>
+
+```{r Accuracy Results, fig.height = 100, fig.width = 12, message = FALSE, warning = FALSE}
+
+print(paste0("Average 7 Day Accuracy: ", mean(AccuracyLog$Accuracy7Day)))
+print(paste0("Average 30 Day Accuracy: ", mean(AccuracyLog$Accuracy30Day)))
+print(paste0("Average 90 Day Accuracy: ", mean(AccuracyLog$Accuracy90Day)))
+
+AccuracyLog %>%
+  melt(id = c("Ticker", "Version")) %>%
+  mutate(value = ifelse(value < 0, 0, value)) %>%
+  select(Version, variable, value) %>%
+  ggplot(aes(x = value)) +
+  geom_histogram(color = "black", fill = "darkgrey", bins = 25) +
+  xlim(c(0, 1)) +
+  xlab("\nAccuracy Score\n") +
+  ylab("\nCount\n") +
+  facet_wrap(~ Version + variable, nrow = 24, ncol = 3, scales = "free") +
+  theme(axis.text.x = element_text(size = 9.5, angle = 45, hjust = 1),
+      axis.text.y = element_text(size = 9.5),
+      axis.title.x = element_text(size = 10, color = "black", face = "bold"),
+      axis.title.y = element_text(size = 10, color = "black", face = "bold"),
+      title = element_text(size = 11, color = "black", face = "bold"),
+      plot.caption = element_text(size = 9, color = "black", face = "italic"),
+      panel.background = element_rect(fill = NA))
+  
+```
+
+<p>&nbsp;</p>
+
+##### **v. Bad Accuracy Example**
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+</font>
+
+```{r Bad Accuracy Example, message = FALSE, warning = FALSE, fig.height = 8, fig.width = 12}
+
+ExampleData <- TimeSeries %>%
+  filter(Ticker == "BTC") %>%
+  filter(Version == "AllMonthClose") %>%
+  select(Type, Date, Quantity) %>%
+  mutate(Forecast = Quantity) %>%
+  rename(Historical = Quantity) %>%
+  mutate(Historical = ifelse(Type == "Historical", Historical, NA)) %>%
+  mutate(Forecast = ifelse(Type == "Forecast", Forecast, NA))
+
+ggplot(ExampleData, aes(x = as.Date(Date), y = Historical, width = 0.7, fill = Type)) +
+geom_bar(stat = "identity", position = "dodge", colour = "dodgerblue4") +
+geom_line(data = ExampleData, aes(x = as.Date(Date), y = Forecast, group = 1), size = 1.1, colour = "darkorange2") +
+scale_fill_manual("legend", values = c("Historical" = "dodgerblue4", "Forecast" = "darkorange2")) +
+ggtitle("\nExample of Cryptocurrency Forecast with Bad Accuracy\n") +
+ylab("\nActual / Forecast\n") +
+xlab("\nDate\n") +
+theme(axis.text.x = element_text(size = 8, angle = 90, hjust = 1),
+      axis.text.y = element_text(size = 8),
+      axis.title.x = element_text(size = 10, color = "black", face = "bold"),
+      axis.title.y = element_text(size = 10, color = "black", face = "bold"),
+      title = element_text(size = 11, color = "black", face = "bold"),
+      plot.caption = element_text(size = 9, color = "black", face = "bold"),
+      panel.border = element_rect(color = "grey", fill = NA, size = 1),
+      panel.background = element_rect(fill = NA),
+      legend.position = c(0.5, .931),
+      legend.direction = "horizontal",
+      legend.title = element_blank())
+  
+```
+
+<p>&nbsp;</p>
+
+##### **vi. OK Accuracy Example**
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+</font>
+
+```{r OK Accuracy Example, message = FALSE, warning = FALSE}
+
+ExampleData <- TimeSeries %>%
+  filter(Ticker == "API3") %>%
+  filter(Version == "AllMonthClose") %>%
+  select(Type, Date, Quantity) %>%
+  mutate(Forecast = Quantity) %>%
+  rename(Historical = Quantity) %>%
+  mutate(Historical = ifelse(Type == "Historical", Historical, NA)) %>%
+  mutate(Forecast = ifelse(Type == "Forecast", Forecast, NA))
+
+ggplot(ExampleData, aes(x = as.Date(Date), y = Historical, width = 0.7, fill = Type)) +
+geom_bar(stat = "identity", position = "dodge", colour = "dodgerblue4") +
+geom_line(data = ExampleData, aes(x = as.Date(Date), y = Forecast, group = 1), size = 1.1, colour = "darkorange2") +
+scale_fill_manual("legend", values = c("Historical" = "dodgerblue4", "Forecast" = "darkorange2")) +
+ggtitle("\nExample of Cryptocurrency Forecast with OK Accuracy\n") +
+ylab("\nActual / Forecast\n") +
+xlab("\nDate\n") +
+theme(axis.text.x = element_text(size = 8, angle = 90, hjust = 1),
+      axis.text.y = element_text(size = 8),
+      axis.title.x = element_text(size = 10, color = "black", face = "bold"),
+      axis.title.y = element_text(size = 10, color = "black", face = "bold"),
+      title = element_text(size = 11, color = "black", face = "bold"),
+      plot.caption = element_text(size = 9, color = "black", face = "bold"),
+      panel.border = element_rect(color = "grey", fill = NA, size = 1),
+      panel.background = element_rect(fill = NA),
+      legend.position = c(0.5, .931),
+      legend.direction = "horizontal",
+      legend.title = element_blank())
+
+```
+
+<p>&nbsp;</p>
+
+##### **vii. Good Accuracy Example**
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+</font>
+
+```{r Good Accuracy Example, message = FALSE, warning = FALSE}
+
+ExampleData <- TimeSeries %>%
+  filter(Ticker == "BAL") %>%
+  filter(Version == "AllMonthClose") %>%
+  select(Type, Date, Quantity) %>%
+  mutate(Forecast = Quantity) %>%
+  rename(Historical = Quantity) %>%
+  mutate(Historical = ifelse(Type == "Historical", Historical, NA)) %>%
+  mutate(Forecast = ifelse(Type == "Forecast", Forecast, NA))
+
+ggplot(ExampleData, aes(x = as.Date(Date), y = Historical, width = 0.7, fill = Type)) +
+geom_bar(stat = "identity", position = "dodge", colour = "dodgerblue4") +
+geom_line(data = ExampleData, aes(x = as.Date(Date), y = Forecast, group = 1), size = 1.1, colour = "darkorange2") +
+scale_fill_manual("legend", values = c("Historical" = "dodgerblue4", "Forecast" = "darkorange2")) +
+ggtitle("\nExample of Cryptocurrency Forecast with Good Accuracy\n") +
+ylab("\nActual / Forecast\n") +
+xlab("\nDate\n") +
+theme(axis.text.x = element_text(size = 8, angle = 90, hjust = 1),
+      axis.text.y = element_text(size = 8),
+      axis.title.x = element_text(size = 10, color = "black", face = "bold"),
+      axis.title.y = element_text(size = 10, color = "black", face = "bold"),
+      title = element_text(size = 11, color = "black", face = "bold"),
+      plot.caption = element_text(size = 9, color = "black", face = "bold"),
+      panel.border = element_rect(color = "grey", fill = NA, size = 1),
+      panel.background = element_rect(fill = NA),
+      legend.position = c(0.2, .931),
+      legend.direction = "horizontal",
+      legend.title = element_blank())
+
+```
+
+<p>&nbsp;</p>
+
+#### **Conclusion**
+
+<p>&nbsp;</p>
+
+<font size = "4">
+
+In this project, I took a deep dive into the world of crypto and generated
+forecasts for various cryptocurrencies including everything from data
+collection, data cleaning, data exploration, and data modeling.
+
+The results show that some cryptocurrencies are more forecastable than others.
+I found that one of the biggest challenges was the volatility of the prices.
+Most cryptocurrency prices have been subject to extreme fluctuations in the
+past, and even though this is beginning to stabalize now that crypto has become
+more mainstream, it still makes it difficult to forecast.
+
+I would have liked to fine tune the model more, but unfortunately I ran out of
+time. I think it would be interesting to see what would happen if I tried
+adjusting some of the parameters that the prophet package has to offer. Maybe
+I could a forecast with more ups and downs instead of a straight line.
+
+Nonetheless, I accomplished my goal in this project by learning more about
+cryptocurrency and further developed my data science skills in the process. I
+feel that the code I wrote was some of the more sophisticated code that I have
+wrote, including using python modules and complicated pipe operations in R. I
+hope to continue to build on this and develop my own algorithmic trading 
+application in the future.
+
+</font>
+
+<p>&nbsp;</p>
