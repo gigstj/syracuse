@@ -1,0 +1,129 @@
+---
+output: word_document
+---
+
+Homework 6  
+Syracuse University  
+IST 772  
+Summer 2021  
+
+```{r Libraries, message = FALSE, warning = FALSE}
+
+library(BayesFactor)
+library(BEST)
+
+```
+
+### Question 1
+
+```{r Question 1}
+
+# dimensions of the InsectSprays dataset
+dim(InsectSprays)
+
+# preview the InsectSprays dataset
+head(InsectSprays)
+tail(InsectSprays)
+
+# the dependent variable = count of insects killed
+# independent variable = type of insect spray
+# number of observations = 72
+
+```
+
+### Question 2
+
+```{r Question 2}
+
+# the between groups variance is 533.8
+# the within groups variance is 15.4
+
+```
+
+### Question 3
+
+```{r Question 3}
+
+# calculate the F ratio
+533.8 / 15.4
+
+# the F ratio is very high indicating that it is very likely that the
+# samples being compared are from different populations
+
+# in this case, I would reject the null hypothesis that the samples
+# were sampled from the same population
+
+```
+
+### Question 4
+
+```{r Question 4}
+
+# calculate the degrees of freedom between groups
+# 6 groups - 1 grand mean = 5 df between groups
+# 72 obs - 6 groups = 66 df within groups
+
+# the reason that these add up to one less than the total number of observations
+# in the dataset is because we are always borrowing one degree of freedom from
+# the grand mean.
+
+```
+
+### Question 5
+
+```{r Question 5}
+
+# run the aov() command on the InsectSpray dataset
+InsectSprayOut <- aov(formula = count ~ spray,
+                      data = InsectSprays)
+
+# show the results from the aov()
+summary(InsectSprayOut)
+
+# the null hypothesis is that the data was sampled from the same population.
+# the alternative hypothesis is that the data was sampled from different populations.
+# Given F(5,66) = 34.7, p < 0.001, I would reject the null hypothesis.
+# There is strong evidence that the data was sampled from different populations.
+
+```
+
+### Question 6
+
+```{r Question 6}
+
+# load the bayes factor package
+# already loaded earlier
+
+# run the anovaBF() command on the InsectSprays dataset
+BayesInsectSprayOut <- anovaBF(formula = count ~ spray,
+                       data = InsectSprays)
+
+# summarize the Bayes results
+summary(BayesInsectSprayOut)
+
+# produce posterior distributions with the posterior command
+# posteriors <- posterior(BayesInsectSprayOut, iterations = 10)
+
+# could not run this due to computation issues
+
+# the null hypothesis is that the groups were sampled from the same population
+# the alternative hypothesis is that the groups were sampled from different populations
+
+```
+
+### Question 7
+
+```{r Question 7}
+
+# run bayesian t test on groups C and F
+BESTmcmc(InsectSprays$count[InsectSprays$spray == 'C'],
+        InsectSprays$count[InsectSprays$spray == 'F'])
+
+# the null hypothesis is that the means are not different
+# the alternative hypothesis is that the means are different
+
+# I would reject the null hypothesis because there the HDI does not
+# cross through 0. There is a 95% chance that the mean difference
+# in insects killed between spray C and spray F is between 0.7 and 3.3.
+
+```

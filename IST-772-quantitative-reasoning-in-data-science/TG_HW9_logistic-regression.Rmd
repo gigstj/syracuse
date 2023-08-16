@@ -1,0 +1,85 @@
+---
+output:
+  word_document: default
+---
+
+Homework 9  
+Syracuse University  
+IST 772  
+Summer 2021  
+
+```{r Libraries, message = FALSE, warning = FALSE}
+
+# load packages
+require(car)
+require(dplyr)
+
+```
+
+### Question 2
+
+```{r Question 2, message = FALSE, warning = FALSE}
+
+# use logistic regression to predict vs using gera and hp
+cars_model <- glm(formula = vs ~ gear + hp,
+                  data = mtcars,
+                  family = "binomial")
+
+# summarize the model
+summary(cars_model)
+
+# convert the log odds into regular odds and interpret them (only significant)
+round(exp(coef(cars_model)), 5)
+
+# gear is not significant, so it cannot be interpreted in the model. hp is
+# significant so for a one unit increase in hp the odds of the cylinder being
+# straight shaped changes by .92 : 1, so the odds go down a little bit. On
+# the other hand, for a one unit decrease in hp the odds of the cylinder being
+# straight shaped go up a little bit.
+
+# generate and interpret confidence intervals around the coefficients (only significant)
+exp(confint(cars_model))
+
+```
+
+### Question 5
+
+```{r Question 5}
+
+# cant install baylor ed psych due to R version issues.
+
+# package 'BaylorEdPsych' is not available for this version of R (I am using
+# the most up to date version of R (4.1))
+
+```
+
+### Question 6
+
+```{r Question 6}
+
+# inspect the structure of the chile dataset
+str(Chile)
+
+# check for missing values
+apply(Chile, 2, function(x) sum(is.na(x)))
+
+# use only observations with no missing values
+ChileNew <- Chile[complete.cases(Chile),]
+
+# create the model
+chile_model <- glm(formula = vote ~ age + statusquo,
+                   data = ChileNew,
+                   family = "binomial")
+
+# summarize the model
+summary(chile_model)
+
+# interpret the results
+
+# both the age variable and the statusquo variable are statistically significant.
+# For every one unit increase in age, the probability of voting in favor of
+# Pinochet increases by a probability of 0.006, whereas for every one unit
+# increase in statusquo, the probability of voting in favor of Pinochet increases
+# by a probability of 0.081.
+
+```

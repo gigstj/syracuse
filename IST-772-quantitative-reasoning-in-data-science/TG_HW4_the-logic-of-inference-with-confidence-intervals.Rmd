@@ -1,0 +1,91 @@
+---
+output: word_document
+---
+
+Homework 4  
+Syracuse University  
+IST 772  
+Summer 2021  
+
+### Question 7
+
+```{r Question 7}
+
+# summarize plant growth data and explain the output
+summary(PlantGrowth)
+
+# the summary shows the min, 1st quartile, median, mean, 3rd quartile,
+# and max of the weight variable of the plant growth dataset. It also
+# shows that there are 3 groups each with 10 observations.
+
+# create a histogram of the control group
+hist(PlantGrowth[which(PlantGrowth$group == 'ctrl'),
+                 which(colnames(PlantGrowth) == 'weight')],
+                 main = 'Histogram of Weight for ctrl Group',
+                 xlab = 'Weight', ylab = 'Frequency', breaks = 10)
+
+# create a histogram of the trt1 group
+hist(PlantGrowth[which(PlantGrowth$group == 'trt1'),
+                 which(colnames(PlantGrowth) == 'weight')],
+                 main = 'Histogram of Weight for trt1 Group',
+                 xlab = 'Weight', ylab = 'Frequency', breaks = 10)
+
+# create a histogram of the trt2 group
+hist(PlantGrowth[which(PlantGrowth$group == 'trt2'),
+                 which(colnames(PlantGrowth) == 'weight')],
+                 main = 'Histogram of Weight for trt2 Group',
+                 xlab = 'Weight', ylab = 'Frequency', breaks = 10)
+
+# the number of observations in the data set is very small, but based on
+# the data that is available and by looking at the histograms, the control
+# group weights are more clustered around the middle while the trt1 and
+# trt2 groups are more spread out.
+
+```
+
+### Question 8
+
+```{r Question 8}
+
+# create a box plot of the plant growth data
+boxplot(formula = weight ~ group,
+        data = PlantGrowth,
+        main = 'Boxplots of PlantGrowth Groups',
+        ylab = 'Weight',
+        xlab = 'Group')
+
+# It looks like the trt1 group tends to have lower weight than the other groups,
+# the trt2 group tends to have higher weight than the other groups, and the
+# control group tends to have weight in the middle.
+
+```
+
+### Question 9
+
+```{r Question 9}
+
+# run a t test to compare the means of ctrl and trt1 groups
+t.test(PlantGrowth$weight[PlantGrowth$group == 'ctrl'],
+       PlantGrowth$weight[PlantGrowth$group == 'trt1'])
+
+# The confidence interval resulting from the t test is a mean difference of
+# -0.29 to 1.03. This means that in 95 out of 100 trials, the population
+# mean difference will fall into this confidence interval and in 5 out of 100
+# trials, the population mean difference will not be in this confidence interval.
+
+```
+
+### Question 10
+
+```{r Question 10}
+
+# run a t test to compare the means of ctrl and trt2 groups
+t.test(PlantGrowth$weight[PlantGrowth$group == 'ctrl'],
+       PlantGrowth$weight[PlantGrowth$group == 'trt2'])
+
+# The confidence interval resulting from the t test is a mean difference of
+# -0.98 to -0.01. This means that in 95 out of 100 trials, the population
+# mean difference will fall into this confidence interval and in 5 out of 100
+# trials, the population mean difference will not be in this confidence interval.
+
+```

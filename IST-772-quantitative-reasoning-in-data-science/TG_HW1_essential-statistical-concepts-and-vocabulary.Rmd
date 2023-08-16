@@ -1,0 +1,112 @@
+---
+output: word_document
+---
+
+Homework 1  
+Syracuse University  
+IST 772  
+Summer 2021  
+
+### Question 1
+
+**Mean**  
+The mean is a measure of central tendancy that represents where most of
+the data is or where the data typically is. It is calculated by taking
+the sum of all of the data points divided by the number of data points.
+
+**Median**  
+The median is a measure of central tendancy that represents where the middle
+of the data is. It is calculated by ordering the data points in order of least
+to greatest and then taking the data point in the middle. If there are an even
+number of data points, the mean of the two middle data points are used. If there
+are an odd number of data points, there will be one data point in the middle.
+
+**Mode**  
+The mode is a measure of central tendancy that represents the most frequently
+occuring value out of a set of data points. In the case of a tie, there can
+be more than one mode.
+
+**Variance**  
+The variance is a measure of dispersion that represents the average squared
+deviance of a set of data points. It is calculated by taking the sum of
+squares of a set of data points and dividing by the number of data points.
+
+**Standard Deviation**  
+The standard deviation is a measure of dispersion that represents the
+square root of the variance. It is calculated by taking the square root
+of the variance.
+
+**Histogram**  
+A histogram is a chart that represents the frequency distribution of a set
+of data points. The data points are bucketed into a certain number of bins,
+and then the count of the number of data points within a certain bin falls
+on the y axis, and the bins fall on the x axis.
+
+**Normal Distribution**  
+The normal distribution describes the shape of a distribution. When the distribution
+follows the shape of a bell curve, it is said to be a normal distribution.
+
+**Poisson Distribution**  
+The poisson distribution describes the shape of a distribution. This distribution
+is commonly associated with time occurring between two events.
+
+\newpage
+
+### Question 3
+
+<p>&nbsp;</p>
+
+```{r}
+
+# choose a data set that contains at least one numeric variable
+mtcars <- mtcars
+
+# summarize the mpg variable from the mtcars dataset
+summary(mtcars$mpg)
+
+# The mean of the mpg variable in the mtcars dataset is 20.09. The mean is the
+# sum of the data points divided by the number of data points. Here is the
+# calculation of the mean the long way.
+
+# here is a vector shwoing the data points in the mpg variable
+mtcars$mpg
+
+# here is the sum of the data points in the mpg variable
+sum(mtcars$mpg)
+
+# here is the number of data points in the mpg variable
+length(mtcars$mpg)
+
+# here is the sum of the data points divided by the number of data points
+sum(mtcars$mpg) / length(mtcars$mpg)
+
+# The median of the mpg variable in the mtcars dataset is 19.20. The median
+# is the middle point of the data points.Since there are an even number of data
+# points, 32 data points, as we saw from earlier, the median will take the
+# mean of the two middle data points.
+
+# here are the ordered data points from least to greatest
+sort(mtcars$mpg)
+
+# the median is the mean of numbers at positions 16 and 17
+mean(sort(mtcars$mpg) [16], sort(mtcars$mpg) [17])
+
+```
+
+### Question 4
+
+<p>&nbsp;</p>
+
+```{r}
+
+# choose a data set that contains at least one numeric variable
+chickweight <- ChickWeight
+
+# create a histogram of the weight variable from the ChickWeight dataset
+hist(ChickWeight$weight, breaks = 50)
+
+```
+
+The chick weights seem to follow the shape of a poisson distribution. It
+fits this distrubtion because it is right skewed and tails off to the right
+and does not have a left tail.

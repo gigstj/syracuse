@@ -1,0 +1,145 @@
+---
+output:
+  word_document: default
+---
+
+Homework 8  
+Syracuse University  
+IST 772  
+Summer 2021  
+
+```{r Libraries, message = FALSE, warning = FALSE}
+
+# load packages
+library(BayesFactor)
+library(BEST)
+library(car)
+
+```
+
+### Question 1
+
+```{r Question 1}
+
+# create a subset dataframe from mtcars
+myCars <- data.frame(mtcars[, 1:6])
+
+```
+
+### Question 2
+
+```{r Question 2}
+
+# create and interpret a bivariate correlation matrix
+cor(myCars, method = "pearson")
+
+# cyl, disp, hp, and wt all have negative correlations with mpg. There
+# might be multicollinearity between these variables because they are
+# also correlated with eachother. The drat variable, on the other hand,
+# has a positive correlation with mpg.
+
+```
+
+### Question 3
+
+```{r Question 3}
+
+# run a multiple regression on myCars
+carsOut <- lm(formula = mpg ~ wt + hp,
+              data = mtcars)
+
+# summarize the model results
+summary(carsOut)
+
+# yes the overall R-squared is significant because the p-value is much less than
+# any of the standard alphas, 0.05, 0.01, 0.001.
+
+# the value of R-squared is 0.8268. This is a strong result, indicating that
+# 82.68% of the variance in miles per gallon is explained by the weight and
+# the horse power of the car.
+
+# coefficient for weight = -3.87783. Yes this is significant because the
+# p value is < .001. This is a strong result because it is significant in
+# explaining variance in the miles per gallon.
+
+# coefficient for horsepower = -0.03177. Yes this is significant because the
+# p value is < 0.01. This is a strong result becuase it is significant in
+# explaining variance in the miles per gallon.
+
+```
+
+### Question 4
+
+```{r Question 4}
+
+# construct a prediction equation for mpg using the result from exercise 3
+# mpg = 37.22727 - 3.8778 * weight - 0.03177 * horsepower
+mpg <- function(x1, x2) {37.22727 + (-3.8778 * x1) + (-0.03177 * x2)}
+
+# predict the mpg for a car with 110 weight and 3 horse power
+mpg(x1 = 3, x2 = 110)
+
+```
+
+### Question 5
+
+```{r Question 5}
+
+# run a multiple regression analysis on mycars with lmBF()
+# carsOutBayes <- lmBF(formula = mpg ~ wt + hp,
+#                      data = mtcars)
+
+# carsOutBayes
+
+```
+
+### Question 6
+
+```{r Question 6}
+
+# run a multiple regression analysis on mycars with lmBF()
+# carsOutBayes <- lmBF(formula = mpg ~ wt + hp,
+#                      data = mtcars,
+#                      posterior = TRUE,
+#                      iterations = 10000)
+
+# carsOutBayes
+
+```
+
+### Question 7
+
+```{r Question 7}
+
+# install the car package
+# install.packages("car")
+# library(car)
+
+# read help on vif
+help(vif)
+
+# the vif is a way to look at how much one of the variables is contributing
+# to the error in a model. Using this could help narrow down a set of features
+# that are optimal for the model. if the vif is very high for a particular
+# variable it may indicate that there is multicollinearity and so either
+# that variable will need to be removed altogether or combined with the variable
+# that it is related with to make one combined variable.
+
+```
+
+### Question 8
+
+```{r Question 8}
+
+# run vif on the results of the model from exercise 2
+vif(carsOut)
+
+# run a vif on the results of a model that uses all predictor variables
+vif(lm(formula = mpg ~ .,
+       data = mtcars))
+
+# a number of variables have a vif of greater than 5 which means that they
+# are causing variance inflation. The variables that have a vif of greater
+# than 5 should either be removed or combined with another variable.
+
+```

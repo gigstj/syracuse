@@ -1,0 +1,143 @@
+---
+output: word_document
+---
+
+Homework 5  
+Syracuse University  
+IST 772  
+Summer 2021  
+
+```{r Libraries, message=FALSE, warning=FALSE}
+
+library(dplyr)
+library(BEST)
+
+```
+
+### Question 6
+
+```{r Question 6}
+
+# run a t test to compare the means of the control group and treatment group 1
+t.test((PlantGrowth %>% filter(group == 'ctrl'))$weight,
+       (PlantGrowth %>% filter(group == 'trt1'))$weight)
+
+# t = 1.1913
+# df = 16.5240
+# p = 0.2504
+# upper bound = 1.0295
+# lower bound = -0.2875
+
+# the null hypothesis is not rejected because zero is contained within the
+# confidence interval. In addition, the results are not statistically
+# significant given that the p-value of 0.2504 is > than the alpha of 0.05.
+
+```
+
+### Question 7
+
+```{r Question 7}
+
+# Use BESTmcmc to compare the PlantGrowth control group and treatment group 1
+plantgrowthbest <- BESTmcmc((PlantGrowth %>% filter(group == 'ctrl'))$weight,
+                            (PlantGrowth %>% filter(group == 'trt1'))$weight)
+
+# print the results from the BESTmcmc simulation
+print(plantgrowthbest)
+
+# plot the results from the BESTmcmc simulation
+plot(plantgrowthbest)
+
+# upper boundary = 1.15
+# lower boundary = -0.358
+
+# the HDI is the highest density interval which means it is where the
+# mean difference is going to land 95% of the time. Therefore we can be 95%
+# confident that the mean difference is within the HDI.
+
+```
+
+### Question 8
+
+```{r Question 8}
+
+# null hypothesis test
+
+# the result of the null hypothesis test was that the null hypothesis could
+# not be rejected, that is that there is not a statistically significant
+# mean difference in the weight between the control group and treatment group 1.
+
+# the confidence interval
+
+# we are 95% confident that the population mean difference in weight between the control
+# group and treatment group 1 is between -0.2875 and 1.0295. 
+
+# BESTmcmc HDI
+
+# we can be 95% confident that the population mean difference in weight between
+# the control group and treatment group 1 is between -0.358 and 1.15.
+
+```
+
+### Question 9
+
+```{r Question 9}
+
+# run a t test to compare the means of the control group and treatment group 2
+t.test((PlantGrowth %>% filter(group == 'ctrl'))$weight,
+       (PlantGrowth %>% filter(group == 'trt2'))$weight)
+
+# Use BESTmcmc to compare the PlantGrowth control group and treatment group 1
+plantgrowthbest <- BESTmcmc((PlantGrowth %>% filter(group == 'ctrl'))$weight,
+                            (PlantGrowth %>% filter(group == 'trt2'))$weight)
+
+# print the results from the BESTmcmc simulation
+print(plantgrowthbest)
+
+# plot the results from the BESTmcmc simulation
+plot(plantgrowthbest)
+
+# null hypothesis test
+
+# the result of the null hypothesis test is that the null hypothesis is
+# rejected, that is that there is a statistically significant mean difference
+# in the weight between the control group and treatment group 1. Zero is not
+# contained in the confidence interval and the p-value of 0.0479 is less than
+# the alpha value of 0.05.
+
+# the confidence interval
+
+# we are 95% confident that the population mean difference in weight between the control
+# group and treatment group 1 is between -0.9829 and -0.0051. 
+
+# BESTmcmc HDI
+
+# we can be 95% confident that the population mean difference in weight between
+# the control group and treatment group 1 is between -1.06 and 0.0578.
+
+```
+
+### Question 10
+
+```{r Question 10}
+
+# perform the t test
+t.test(rnorm(100000, mean = 17.1, sd = 3.8),
+       rnorm(100000, mean = 17.2, sd = 3.8))
+
+# comment on the results of the t test
+
+# the result of the null hypothesis test is that the null hypothesis is
+# rejected, that is that there is a statistically significant mean difference
+# in the values between the two groups. Zero is not contained in the
+# confidence interval and the p-value of 0.000000001588. 
+
+# what are the implications of using NHST on very large data sets?
+
+# going back to the law of large numbers, we know that the results will
+# converge on a certain value. Given that the mean of the data set is
+# set up to be 17.1, it makes sense that the t.test estimates the mean
+# to be 17.09. It is not exactly 17.1 due to randomness but it is very
+# close. 
+
+```

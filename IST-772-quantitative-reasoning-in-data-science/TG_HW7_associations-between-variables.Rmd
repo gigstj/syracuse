@@ -1,0 +1,127 @@
+---
+output:
+  word_document: default
+---
+
+Homework 7  
+Syracuse University  
+IST 772  
+Summer 2021  
+
+```{r Libraries, message = FALSE, warning = FALSE}
+
+# load packages
+library(BayesFactor)
+
+```
+
+### Bayes Correlation Function
+
+```{r Bayes Correlation Function}
+
+# create the bfCorTest function
+bfCorTest <- function(x,y) {
+    zx <- scale(x)                                       # standardize x
+    zy <- scale(y)                                       # standardize y 
+    zData <- data.frame(x = zx, rhoNot0 = zy)            # put in a data frame
+    bfOut <- generalTestBF(x ~ rhoNot0, data = zData)    # linear coefficient
+    mcmcOut <- posterior(bfOut, iterations = 10000)      # posterior samples
+    print(summary(mcmcOut[, "rhoNot0"]))                 # show the HDI for r
+    return(bfOut)                                        # return bayes factor object
+}
+
+```
+
+### Question 3
+
+```{r Question 3}
+
+# run cor.test() on the correlation between "area" and "perm" in the rock dataset
+cor.test(rock[, "area"], rock[, "perm"])
+
+# the null hypothesis is that the correlation between the area and perm is = 0.
+# reject the null hypothesis because 0 is not contained within the 95%
+# confidence interval and the results are statistically significant according
+# to the p value.
+
+```
+
+### Question 4
+
+```{r Question 4}
+
+# created the bfCorTest function in earlier code
+# bfCorTest(rock[, "area"], rock[, "perm"])
+
+# cant run the code on my computer. Whenever I try to do so it crashes.
+
+```
+
+### Question 8
+
+```{r Question 8}
+
+# run chisq.test() on the subset of UCBAdmissions data
+chisq.test(UCBAdmissions[,,1])
+
+# The chi squared value of 16.372 on one degree of freedom has a corresponding
+# p value of .00005205 which is much less than the standard alpha of 0.05 and
+# thus the null hypothesis that the variables are independent is rejected.
+
+```
+
+### Question 9
+
+```{r Question 9}
+
+# conduct a contingencyTableBF() on UCB admissions data without posterior sampling
+out <- contingencyTableBF(x = ftable(UCBAdmissions[,,1]),
+                          sampleType = "poisson",
+                          posterior = FALSE,
+                          iterations = 10000)
+
+# summarize
+summary(out)
+
+# the bayes factor shows the ratio of odds of the alternative hypothesis
+# to the null hypothesis. By rule of thumb if it has at least an odds
+# ratio of 3:1 then there is considered to be evidence in favor of the
+# alternative hypothesis. The odds ratio is 1111:1 so there is very
+# strong evidence in favor of the alternative hypothesis.
+
+```
+
+### Question 10
+
+```{r Question 10}
+
+# conduct a contingencyTableBF() on UCB admissions data with posterior sampling
+out <- contingencyTableBF(x = ftable(UCBAdmissions[,,1]),
+                          sampleType = "poisson",
+                          posterior = TRUE,
+                          iterations = 10000)
+
+# summarize
+summary(out)
+
+# get the proportion of males admitted over rejected
+maleProp <- as.data.frame(out)$`lambda[1,1]` / as.data.frame(out)$`lambda[2,1]`
+
+# get the proportion of females admitted over rejected
+femaleProp <- as.data.frame(out)$`lambda[1,2]` / as.data.frame(out)$`lambda[2,2]`
+
+# calculate the differences in proportions
+diffProp <- maleProp - femaleProp
+
+# plot the histogram of the differences in proportions
+hist(diffProp)
+
+# add the lower bound of the 95% HDI and print it
+abline(v = quantile(diffProp, c(0.025)), col = "black")
+print(paste("Lower bound of 95% confidence interval =", quantile(diffProp, c(0.025))))
+
+# add the upper bound of the 95% HDI and print it
+abline(v = quantile(diffProp, c(0.975)), col = "black")
+print(paste("Upper bound of 95% confidence interval =", quantile(diffProp, c(0.975))))
+
+```

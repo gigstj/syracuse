@@ -1,0 +1,99 @@
+---
+output:
+  word_document: default
+---
+
+Homework 10  
+Syracuse University  
+IST 772  
+Summer 2021  
+
+```{r Libraries, message = FALSE, warning = FALSE}
+
+# load packages
+require(readr)
+require(arules)
+require(dplyr)
+require(changepoint)
+
+```
+
+### Question 2
+
+```{r Question 2, message = FALSE, warning = FALSE}
+
+# load the blackmore dataset
+Blackmore <- read.csv("dataset-74527.csv")
+
+# boxplot showing the exercise level at different ages
+boxplot(exercise ~ floor(age),
+        data = Blackmore)
+
+# check that the data is balanced
+table(floor(Blackmore$age))
+
+# run repeated measures ANOVA to compare age 8, 10, 12
+aovOut <- aov(exercise ~ floor(age),
+              data = Blackmore[which(floor(Blackmore$age) %in% c(8, 10, 12)), ])
+
+# summarize the ANOVA
+summary(aovOut)
+
+```
+
+### Question 5
+
+```{r Question 5, message = FALSE, warning = FALSE}
+
+# use diff to create a differenced data set
+airpassengersdiff <- diff(AirPassengers)
+
+# plot the differenced data set
+plot(airpassengersdiff)
+
+# use cpt.var() to find the change point in the variability
+cpt.var(airpassengersdiff)
+
+# plot the result
+plot(cpt.var(airpassengersdiff))
+
+# the change point identifies the point in time where there was a change
+# in the variance of the y value.
+
+```
+
+### Question 6
+
+```{r Question 6, message = FALSE, warning = FALSE}
+
+# use cpt.mean() on the airpassengers time series
+cpt.mean(airpassengersdiff)
+
+# compare the change point of the mean
+plot(cpt.mean(airpassengersdiff))
+
+# according to the statistical model, the mean of the time series changed later than
+# the variation of the time series.
+
+```
+
+### Question 7
+
+```{r Question 7, message = FALSE, warning = FALSE}
+
+# The air passengers data set contains monthly airline passenger numbers
+# between 1949-1960. We can easily see from looking at the plot that
+# the number of passengers is increasing with time. From analyzing the
+# statistics we can see that the change point in variation is at about
+# 1955 while the change point in the mean is at about 1961. The reason for
+# this is because the seasonal dips start to become much larger, but it takes
+# a little bit longer for this to affect the mean than it does to affect
+# the variation.
+
+```
+
+### Question 8
+
+```{r Question 8, message = FALSE, warning = FALSE}
+
+```

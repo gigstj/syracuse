@@ -1,0 +1,112 @@
+---
+output: word_document
+---
+
+Homework 3  
+Syracuse University  
+IST 772  
+Summer 2021  
+
+### Question 2
+
+```{r Question 2}
+
+# summarize the chickweights dataset
+summary(ChickWeight)
+
+# there are four variables
+    # weight
+    # time
+    # chick
+    # diet
+
+# dimensions of the chickweights dataset
+dim(ChickWeight)
+
+# the first number reflects the number of rows - 578
+# it signifies how many observations there are
+
+```
+
+### Question 3
+
+```{r Question 3}
+
+summary(ChickWeight$weight)
+# provides the min, 1st quartile, median, mean, 3rd quartile, and max of the weight variable
+
+head(ChickWeight$weight)
+# shows the first 6 observations of the weight variable
+
+mean(ChickWeight$weight)
+# shows the mean of the weight variable
+
+myChkWts <- ChickWeight$weight
+# stores the weight variable into a new variable
+
+quantile(myChkWts, 0.50)
+# provides the number where .50 quantile is located
+
+```
+
+### Question 4
+
+```{r Question 4}
+
+# create a histogram for the myChkWts variable
+hist(myChkWts, breaks = 50)
+
+# display the 2.5 and 97.5 quantiles
+quantile(myChkWts, c(0.025, 0.975))
+
+# this is a right skewed distribution because the mean is greater than the
+# median. It is not a normal distribution.
+
+# the 2.5 quantile of 41 means that 2.5% of all of the data falls below
+# the number 41. Likewise, the 97.5 quantile of 294.575 means that the top
+# 2.5% of all of the data falls above the number 294.575.
+
+```
+
+### Question 5
+
+```{r Question 5}
+
+# create a sampling distribution from chick weights
+ChkWtsSamplingDistribution <- replicate(10000, mean(sample(myChkWts, size = 11, replace = TRUE)))
+
+# show a histogram of the sampling distribution
+hist(ChkWtsSamplingDistribution, main = '1000 samples of size 11')
+abline(v = quantile(ChkWtsSamplingDistribution, 0.025))
+abline(v = quantile(ChkWtsSamplingDistribution, 0.975))
+
+```
+
+### Question 6
+
+```{r Question 6}
+
+# the sampling distribution is different because by taking the mean of many
+# samples, it becomes a normal distribution which converges on the mean
+# of the raw data. The Quantiles are different because the sampling distribution
+# is still taking the mean of a sample.
+
+```
+
+### Question 7
+
+```{r Question 7}
+
+# create a sampling distribution from chick weights
+ChkWtsSamplingDistribution <- replicate(10000, mean(sample(myChkWts, size = 100, replace = TRUE)))
+
+# show a histogram of the sampling distribution
+hist(ChkWtsSamplingDistribution, main = '10000 samples of size 100')
+abline(v = quantile(ChkWtsSamplingDistribution, 0.025))
+abline(v = quantile(ChkWtsSamplingDistribution, 0.975))
+
+# taking a sample of 100 versus a sample of 11 means that the sample will be
+# a better representation of the population. With a smaller sample size there
+# is a greater chance for sampling error.
+
+```
